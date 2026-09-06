@@ -73,10 +73,18 @@ El contrato queda en `http://<host>:5001/soap?wsdl` y el endpoint en
 Gunicorn, y sobrevive a cerrar la sesión y a reiniciar la máquina:
 
 ```bash
-sudo cp deploy/libreria-soap.service /etc/systemd/system/
+sudo restorecon -Rv services/library_soap_service     # imprescindible, ver abajo
+sudo cp ../../deploy/libreria-soap.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now libreria-soap
 ```
+
+**El `restorecon` no es opcional.** Sin él el servicio falla con `203/EXEC` y
+`Permission denied`, aunque el binario exista y corra a mano. Los archivos del
+repositorio quedan etiquetados `user_home_t` —pasa al clonar en el directorio
+personal y mover con `mv`— y systemd no puede ni *leer* un enlace simbólico con
+ese tipo. `restorecon` les devuelve el contexto que corresponde a `/opt`. Hay
+que repetirlo si se recrea el entorno virtual.
 
 **Un solo worker, a propósito:** la protección contra reenvíos de WS-Security
 guarda los nonces en memoria del proceso. Con cuatro workers, la prueba N11 pasa

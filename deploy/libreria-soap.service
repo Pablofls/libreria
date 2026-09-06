@@ -38,25 +38,32 @@ WorkingDirectory=/opt/udem/libreria/services/library_soap_service
 #
 # Si algun dia hicieran falta varios workers, primero hay que mover esa cache a
 # Redis o a una tabla. Esta anotado como limitacion en la documentacion tecnica.
-# Se invoca el INTERPRETE del entorno virtual con -m gunicorn, y no el script
-# .venv/bin/gunicorn directamente. La razon es SELinux:
+# ATENCION: ANTES DE HABILITAR ESTE SERVICIO, ETIQUETAR EL ARBOL
 #
-#   $ ls -laZ .venv/bin/gunicorn
-#   ... unconfined_u:object_r:user_home_t:s0 ... gunicorn
+#     sudo restorecon -Rv /opt/udem/libreria/services/library_soap_service
 #
-# Los archivos del repositorio quedaron etiquetados user_home_t, y systemd no
-# puede ejecutar ese tipo: falla con 203/EXEC y "Permission denied". En cambio
-# .venv/bin/python3 es un enlace simbolico a /usr/bin/python3, que si tiene la
-# etiqueta bin_t; para la comprobacion de ejecucion cuenta el contexto del
-# DESTINO del enlace, asi que esta forma pasa.
+# Sin eso el servicio falla con 203/EXEC y "Permission denied", aunque el
+# binario exista y corra a mano. La causa real, leida del registro de auditoria:
 #
-# El venv sigue activo: Python detecta pyvenv.cfg a partir de la ruta desde la
-# que se le invoco, no del destino del enlace. Verificado: sys.prefix apunta al
-# venv y las dependencias se cargan de ahi.
+#     avc: denied { read } ... tclass=lnk_file
+#     scontext=system_u:system_r:init_t
+#     tcontext=unconfined_u:object_r:user_home_t
 #
-# La alternativa era etiquetar el arbol con semanage fcontext + restorecon. Se
-# descarto porque obliga a configurar SELinux a mano en cada despliegue y a
-# recordar rehacerlo tras un git clone nuevo.
+# Los archivos del repositorio quedaron etiquetados user_home_t —pasa al clonar
+# en el directorio personal y mover con `mv`, que conserva las etiquetas— y
+# systemd (init_t) no puede ni LEER un enlace simbolico con ese tipo. Fijate en
+# tclass=lnk_file: la denegacion es sobre leer el enlace, no sobre ejecutar su
+# destino. Por eso no basta con apuntar el ExecStart a un binario del sistema:
+# el fallo ocurre un paso antes de resolver el enlace.
+#
+# restorecon le devuelve a cada archivo el contexto que la politica define para
+# su ubicacion real; bajo /opt eso es usr_t, que systemd si puede leer y
+# ejecutar. Es idempotente, y hay que repetirlo si se recrea el entorno virtual.
+#
+# Se invoca el interprete con -m gunicorn en lugar del script .venv/bin/gunicorn
+# porque no depende de que el shebang del script de consola siga siendo valido
+# si el venv se mueve. El venv sigue activo: Python detecta pyvenv.cfg a partir
+# de la ruta desde la que se le invoco.
 ExecStart=/opt/udem/libreria/services/library_soap_service/.venv/bin/python3 \
     -m gunicorn \
     --workers 1 \

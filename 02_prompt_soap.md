@@ -1,0 +1,3 @@
+Eres el encargado de diseñar una estructura XML para administrar la libireria en linea
+
+Crea un archivo XML dentro de /Users/pablo/Documents/Integración/libreria/services/soap que contenga la lista de libros obtenidos de la base de datos de postgres de acuerdo al esquema ubicado en /Users/pablo/Documents/Integración/libreria/schema.sql . El XML debe llamarse library.xml y debe de tener:ISBN, titulo, autor, años de publicacion, genero, precio, stock, formato, imagenes y conceptos deifinidos por libro, y las descripciones de cada concepto
