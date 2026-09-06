@@ -399,6 +399,42 @@ protección contra reenvíos desaparece sin que nada avise. Por eso
 hilos, que comparten esa memoria. Para escalar a varios procesos hay que mover
 la caché a Redis o a una tabla antes, no después.
 
+### El problema 7, en detalle: SELinux y el despliegue
+
+La unidad no arrancó a la primera. Falló 41 veces en bucle con `203/EXEC` y
+`Permission denied`, **aunque el binario existía y corría a mano**.
+
+La primera hipótesis fue que el binario de Gunicorn del entorno virtual llevaba
+la etiqueta `user_home_t`, que systemd no puede ejecutar, y que bastaría con
+apuntar el `ExecStart` a `python3 -m gunicorn`, porque `.venv/bin/python3` es un
+enlace a `/usr/bin/python3` y para la comprobación contaría el contexto del
+destino. **Siguió fallando igual.** La causa real estaba en el registro de
+auditoría:
+
+```
+avc:  denied  { read } for  pid=4868 comm="(python3)" name="python3"
+      scontext=system_u:system_r:init_t:s0
+      tcontext=unconfined_u:object_r:user_home_t:s0
+      tclass=lnk_file  permissive=0
+```
+
+`tclass=lnk_file`: la denegación es sobre **leer el enlace simbólico**, no sobre
+ejecutar su destino. systemd tiene que leerlo para resolverlo, y el fallo ocurre
+un paso antes de llegar al destino — así que ningún `ExecStart` lo evita.
+
+Todo el árbol estaba mal etiquetado: los archivos llevaban la etiqueta de un
+directorio personal aunque vivieran en `/opt`. Pasa al clonar en `~` y mover con
+`mv`, que conserva las etiquetas. La solución no fue una regla nueva de SELinux
+sino devolverle a cada archivo el contexto que le corresponde por su ubicación:
+
+```bash
+sudo restorecon -Rv /opt/udem/libreria/services/library_soap_service
+```
+
+Bajo `/opt` la política define `usr_t`, que systemd sí puede leer y ejecutar. Es
+idempotente y hay que repetirlo si se recrea el entorno virtual, así que quedó
+documentado como **paso obligatorio del despliegue** en la unidad y en el README.
+
 ---
 
 ## 13. Decisiones de ingeniería
@@ -521,6 +557,7 @@ Formato: **Necesidad → Decisión → Justificación → Ventajas → Limitacio
 | 3 | `zeep` fallaba con "el Body debe contener una operación" | Cliente de la Tarea 4 | El `binding` declaraba `<soap:header part="parameters">` en la operación protegida, lo que movía el cuerpo al encabezado. WS-Security no se declara así: se eliminó |
 | 4 | `psycopg2-binary==2.9.9` no compila en Python 3.13 | `pip install` | No publica rueda para 3.13. Fijado a 2.9.10 |
 | 5 | `zeep==4.2.1` no importa en Python 3.13 | `import zeep` | Usa el módulo `cgi`, retirado en 3.13. Fijado a 4.3.x |
+| 7 | La unidad de systemd fallaba con `203/EXEC`, 41 veces en bucle | Instalarla en la VM, y después `ausearch -m avc` | El árbol estaba etiquetado `user_home_t` aunque viva en `/opt`. Resuelto con `restorecon`. Ver abajo |
 | 6 | **El módulo rompía el monolito**: no se podía borrar un libro cuyo concepto hubiera sido clasificado | Prueba de regresión de las operaciones del monolito, ya con el módulo instalado en la VM | La FK compuesta era `ON DELETE RESTRICT`. Se cambió a `CASCADE`: ver abajo |
 
 El problema 3 es el más interesante técnicamente: **el cliente manual no lo
