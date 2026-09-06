@@ -299,4 +299,21 @@ CREATE UNIQUE INDEX ux_imagenes_portada_unica
 
 CREATE INDEX ix_imagenes_libro ON imagenes_libros (libro_id);
 
+-- -----------------------------------------------------------------------------
+-- Tablas del modulo SOAP: NO se definen aqui.
+--
+-- El modulo de clasificacion Cloud (services/library_soap_service) agrega tres
+-- tablas propias a esta misma base: clasificadores, clasificaciones_cloud y
+-- clientes_servidos, mas cuatro vistas, una funcion y el rol libreria_soap.
+--
+-- Se definen en services/library_soap_service/sql/soap_module.sql y no aqui, a
+-- proposito: este archivo es el esquema del monolito y un entregable cerrado del
+-- ejercicio anterior. Duplicar el DDL en dos lugares garantizaria que un dia se
+-- separen. El diagrama de relaciones del README documenta ambas partes.
+--
+-- Ese script solo AGREGA objetos: no modifica ninguna tabla de este archivo.
+-- Referencia a libros_conceptos con una clave foranea compuesta, asi que debe
+-- ejecutarse despues de este.
+-- -----------------------------------------------------------------------------
+
 COMMIT;

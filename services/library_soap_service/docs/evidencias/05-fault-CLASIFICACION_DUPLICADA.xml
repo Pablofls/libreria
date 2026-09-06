@@ -1,0 +1,16 @@
+<?xml version='1.0' encoding='utf-8'?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:tns="http://udem.edu/iac/libreria/clasificador">
+  <soap:Body>
+    <soap:Fault>
+      <faultcode>soap:Client</faultcode>
+      <faultstring>Ese concepto ya fue clasificado por este clasificador.</faultstring>
+      <detail>
+        <tns:ClasificadorFault>
+          <tns:codigo>CLASIFICACION_DUPLICADA</tns:codigo>
+          <tns:mensaje>Ese concepto ya fue clasificado por este clasificador.</tns:mensaje>
+          <tns:campo>conceptoId</tns:campo>
+        </tns:ClasificadorFault>
+      </detail>
+    </soap:Fault>
+  </soap:Body>
+</soap:Envelope>

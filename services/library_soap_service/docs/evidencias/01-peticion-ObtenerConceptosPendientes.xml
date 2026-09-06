@@ -1,0 +1,2 @@
+<?xml version='1.0' encoding='utf-8'?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:tns="http://udem.edu/iac/libreria/clasificador"><soap:Body><tns:ObtenerConceptosPendientes><tns:limite>2</tns:limite></tns:ObtenerConceptosPendientes></soap:Body></soap:Envelope>

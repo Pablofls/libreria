@@ -1,0 +1,404 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  library-classifier.wsdl
+  Contrato del modulo SOAP de clasificacion Cloud de la Libreria Online.
+
+  El contrato se diseno ANTES de la implementacion: define que capacidades se
+  ofrecen, no como estan guardadas. Por eso los libros se identifican por ISBN y
+  no por su id interno, y por eso no aparece ninguna columna de auditoria del
+  monolito. Ver docs/auditoria-contrato.md.
+
+  Estilo document/literal wrapped: cada operacion tiene un elemento raiz con su
+  mismo nombre, que es lo que esperan wsimport, dotnet-svcutil y zeep.
+
+  La direccion del <soap:address> se reescribe en tiempo de ejecucion con el
+  host real de la peticion (soap/service.py), para que el WSDL publicado en la
+  VM sea correcto sin editar este archivo.
+-->
+<wsdl:definitions
+    name="LibraryClassifier"
+    targetNamespace="http://udem.edu/iac/libreria/clasificador"
+    xmlns:tns="http://udem.edu/iac/libreria/clasificador"
+    xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+    xmlns:soap="http://schemas.xmlsoap.org/wsdl/soap/"
+    xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/">
+
+  <wsdl:documentation>
+    Servicio de clasificacion de conceptos de computo en la nube (IaaS, PaaS,
+    SaaS, FaaS) sobre el catalogo de la Libreria Online.
+  </wsdl:documentation>
+
+  <!-- ===================================================================== -->
+  <!-- Tipos XSD. El tipado es la razon de ser del contrato: el cliente sabe  -->
+  <!-- que 'modelo' solo admite cuatro valores sin leer una linea de codigo   -->
+  <!-- del servidor, y su stub lo valida antes de gastar una llamada de red.  -->
+  <!-- ===================================================================== -->
+  <wsdl:types>
+    <xsd:schema targetNamespace="http://udem.edu/iac/libreria/clasificador"
+                elementFormDefault="qualified">
+
+      <!-- ============================ Tipos simples ====================== -->
+      <xsd:simpleType name="ModeloCloud">
+        <xsd:annotation><xsd:documentation>
+          Modelo de servicio en la nube. Enumeracion cerrada: cualquier otro
+          valor es un error de validacion, no un dato nuevo.
+        </xsd:documentation></xsd:annotation>
+        <xsd:restriction base="xsd:string">
+          <xsd:enumeration value="IaaS"/>
+          <xsd:enumeration value="PaaS"/>
+          <xsd:enumeration value="SaaS"/>
+          <xsd:enumeration value="FaaS"/>
+        </xsd:restriction>
+      </xsd:simpleType>
+
+      <xsd:simpleType name="Isbn">
+        <xsd:restriction base="xsd:string">
+          <xsd:pattern value="[0-9\-]{10,16}[0-9X]"/>
+          <xsd:maxLength value="17"/>
+        </xsd:restriction>
+      </xsd:simpleType>
+
+      <xsd:simpleType name="Correo">
+        <xsd:restriction base="xsd:string">
+          <xsd:pattern value="[^@\s]+@[^@\s]+\.[a-zA-Z]{2,}"/>
+          <xsd:maxLength value="150"/>
+        </xsd:restriction>
+      </xsd:simpleType>
+
+      <xsd:simpleType name="NombrePersona">
+        <xsd:restriction base="xsd:string">
+          <xsd:minLength value="1"/>
+          <xsd:maxLength value="120"/>
+        </xsd:restriction>
+      </xsd:simpleType>
+
+      <!-- ============================ Tipos complejos ==================== -->
+      <xsd:complexType name="Clasificador">
+        <xsd:annotation><xsd:documentation>
+          Identidad que captura la GUI. El servicio no expone ni recibe el id
+          interno del clasificador: el correo es la clave del contrato.
+        </xsd:documentation></xsd:annotation>
+        <xsd:sequence>
+          <xsd:element name="nombre"    type="tns:NombrePersona"/>
+          <xsd:element name="apellidos" type="tns:NombrePersona"/>
+          <xsd:element name="correo"    type="tns:Correo"/>
+        </xsd:sequence>
+      </xsd:complexType>
+
+      <xsd:complexType name="ClienteEscritorio">
+        <xsd:sequence>
+          <xsd:element name="tipo"          type="xsd:string"/>
+          <xsd:element name="identificador" type="xsd:string"/>
+        </xsd:sequence>
+      </xsd:complexType>
+
+      <xsd:complexType name="ConceptoPendiente">
+        <xsd:sequence>
+          <xsd:element name="conceptoId" type="xsd:positiveInteger"/>
+          <xsd:element name="termino"    type="xsd:string"/>
+          <xsd:element name="definicion" type="xsd:string"/>
+          <xsd:element name="isbn"       type="tns:Isbn"/>
+          <xsd:element name="libro"      type="xsd:string"/>
+          <xsd:element name="categoria"  type="xsd:string"/>
+          <xsd:element name="capitulo"   type="xsd:string" minOccurs="0"/>
+          <xsd:element name="pagina"     type="xsd:int"    minOccurs="0"/>
+        </xsd:sequence>
+      </xsd:complexType>
+
+      <xsd:complexType name="TotalPorModelo">
+        <xsd:sequence>
+          <xsd:element name="modelo" type="tns:ModeloCloud"/>
+          <xsd:element name="total"  type="xsd:int"/>
+        </xsd:sequence>
+      </xsd:complexType>
+
+      <xsd:complexType name="EstadisticaModelo">
+        <xsd:sequence>
+          <xsd:element name="modelo"         type="tns:ModeloCloud"/>
+          <xsd:element name="total"          type="xsd:int"/>
+          <xsd:element name="clasificadores" type="xsd:int"/>
+        </xsd:sequence>
+      </xsd:complexType>
+
+      <!-- =================== Operacion: ObtenerConceptosPendientes ======== -->
+      <xsd:element name="ObtenerConceptosPendientes">
+        <xsd:complexType>
+          <xsd:sequence>
+            <xsd:element name="correo" type="tns:Correo" minOccurs="0">
+              <xsd:annotation><xsd:documentation>
+                Si se envia, se excluyen los conceptos que ESE clasificador ya
+                registro. Si se omite, se devuelven los pendientes globales.
+              </xsd:documentation></xsd:annotation>
+            </xsd:element>
+            <xsd:element name="limite" type="xsd:int" minOccurs="0"/>
+          </xsd:sequence>
+        </xsd:complexType>
+      </xsd:element>
+
+      <xsd:element name="ObtenerConceptosPendientesResponse">
+        <xsd:complexType>
+          <xsd:sequence>
+            <xsd:element name="total"    type="xsd:int"/>
+            <xsd:element name="concepto" type="tns:ConceptoPendiente"
+                         minOccurs="0" maxOccurs="unbounded"/>
+          </xsd:sequence>
+        </xsd:complexType>
+      </xsd:element>
+
+      <!-- =================== Operacion: RegistrarClasificacion ============ -->
+      <xsd:element name="RegistrarClasificacion">
+        <xsd:complexType>
+          <xsd:sequence>
+            <xsd:element name="clasificador" type="tns:Clasificador"/>
+            <xsd:element name="conceptoId"   type="xsd:positiveInteger"/>
+            <xsd:element name="isbn"         type="tns:Isbn"/>
+            <xsd:element name="modelo"       type="tns:ModeloCloud"/>
+            <xsd:element name="cliente"      type="tns:ClienteEscritorio"
+                         minOccurs="0"/>
+          </xsd:sequence>
+        </xsd:complexType>
+      </xsd:element>
+
+      <xsd:element name="RegistrarClasificacionResponse">
+        <xsd:complexType>
+          <xsd:sequence>
+            <xsd:element name="clasificacionId"      type="xsd:int"/>
+            <xsd:element name="termino"              type="xsd:string"/>
+            <xsd:element name="libro"                type="xsd:string"/>
+            <xsd:element name="modelo"               type="tns:ModeloCloud"/>
+            <xsd:element name="registradoEn"         type="xsd:dateTime"/>
+            <xsd:element name="peticionesAtendidas"  type="xsd:int"/>
+          </xsd:sequence>
+        </xsd:complexType>
+      </xsd:element>
+
+      <!-- =================== Operacion: ObtenerProgresoUsuario ============ -->
+      <xsd:element name="ObtenerProgresoUsuario">
+        <xsd:complexType>
+          <xsd:sequence>
+            <xsd:element name="correo" type="tns:Correo"/>
+          </xsd:sequence>
+        </xsd:complexType>
+      </xsd:element>
+
+      <xsd:element name="ObtenerProgresoUsuarioResponse">
+        <xsd:complexType>
+          <xsd:sequence>
+            <xsd:element name="correo"            type="tns:Correo"/>
+            <xsd:element name="nombre"            type="xsd:string"/>
+            <xsd:element name="totalClasificados" type="xsd:int"/>
+            <xsd:element name="totalPendientes"   type="xsd:int"/>
+            <xsd:element name="porModelo"         type="tns:TotalPorModelo"
+                         minOccurs="0" maxOccurs="unbounded"/>
+          </xsd:sequence>
+        </xsd:complexType>
+      </xsd:element>
+
+      <!-- ============= Operacion: ObtenerEstadisticasPorModelo ============ -->
+      <!-- Tarea 1. Protegida con WS-Security UsernameToken.                  -->
+      <xsd:element name="ObtenerEstadisticasPorModelo">
+        <xsd:complexType>
+          <xsd:sequence/>
+        </xsd:complexType>
+      </xsd:element>
+
+      <xsd:element name="ObtenerEstadisticasPorModeloResponse">
+        <xsd:complexType>
+          <xsd:sequence>
+            <xsd:element name="generadoEn"   type="xsd:dateTime"/>
+            <xsd:element name="estadistica"  type="tns:EstadisticaModelo"
+                         minOccurs="0" maxOccurs="unbounded"/>
+          </xsd:sequence>
+        </xsd:complexType>
+      </xsd:element>
+
+      <!-- =============================== Fault =========================== -->
+      <xsd:element name="ClasificadorFault">
+        <xsd:annotation><xsd:documentation>
+          Detalle del SOAP Fault. El codigo es estable y accionable por el
+          cliente; el mensaje es para mostrarle a una persona. Nunca lleva SQL,
+          rutas ni trazas.
+        </xsd:documentation></xsd:annotation>
+        <xsd:complexType>
+          <xsd:sequence>
+            <xsd:element name="codigo"  type="xsd:string"/>
+            <xsd:element name="mensaje" type="xsd:string"/>
+            <xsd:element name="campo"   type="xsd:string" minOccurs="0"/>
+          </xsd:sequence>
+        </xsd:complexType>
+      </xsd:element>
+
+      <!-- WS-Security: se declara el encabezado para que el contrato lo -->
+      <!-- documente, aunque el namespace lo define OASIS.                -->
+    </xsd:schema>
+
+    <xsd:schema
+        targetNamespace="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd"
+        xmlns:wsse="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd"
+        elementFormDefault="qualified">
+      <xsd:element name="Security">
+        <xsd:complexType>
+          <xsd:sequence>
+            <xsd:element name="UsernameToken">
+              <xsd:complexType>
+                <xsd:sequence>
+                  <xsd:element name="Username" type="xsd:string"/>
+                  <xsd:element name="Password" type="xsd:string"/>
+                  <xsd:element name="Nonce"    type="xsd:string"/>
+                  <xsd:element name="Created"  type="xsd:string"/>
+                </xsd:sequence>
+              </xsd:complexType>
+            </xsd:element>
+          </xsd:sequence>
+        </xsd:complexType>
+      </xsd:element>
+    </xsd:schema>
+  </wsdl:types>
+
+  <!-- ===================================================================== -->
+  <!-- Mensajes                                                              -->
+  <!-- ===================================================================== -->
+  <wsdl:message name="ObtenerConceptosPendientesIn">
+    <wsdl:part name="parameters" element="tns:ObtenerConceptosPendientes"/>
+  </wsdl:message>
+  <wsdl:message name="ObtenerConceptosPendientesOut">
+    <wsdl:part name="parameters" element="tns:ObtenerConceptosPendientesResponse"/>
+  </wsdl:message>
+
+  <wsdl:message name="RegistrarClasificacionIn">
+    <wsdl:part name="parameters" element="tns:RegistrarClasificacion"/>
+  </wsdl:message>
+  <wsdl:message name="RegistrarClasificacionOut">
+    <wsdl:part name="parameters" element="tns:RegistrarClasificacionResponse"/>
+  </wsdl:message>
+
+  <wsdl:message name="ObtenerProgresoUsuarioIn">
+    <wsdl:part name="parameters" element="tns:ObtenerProgresoUsuario"/>
+  </wsdl:message>
+  <wsdl:message name="ObtenerProgresoUsuarioOut">
+    <wsdl:part name="parameters" element="tns:ObtenerProgresoUsuarioResponse"/>
+  </wsdl:message>
+
+  <wsdl:message name="ObtenerEstadisticasPorModeloIn">
+    <wsdl:part name="parameters" element="tns:ObtenerEstadisticasPorModelo"/>
+  </wsdl:message>
+  <wsdl:message name="ObtenerEstadisticasPorModeloOut">
+    <wsdl:part name="parameters" element="tns:ObtenerEstadisticasPorModeloResponse"/>
+  </wsdl:message>
+
+  <wsdl:message name="ClasificadorFault">
+    <wsdl:part name="fault" element="tns:ClasificadorFault"/>
+  </wsdl:message>
+
+  <!-- ===================================================================== -->
+  <!-- portType: las capacidades, independientes del transporte              -->
+  <!-- ===================================================================== -->
+  <wsdl:portType name="LibraryClassifierPortType">
+
+    <wsdl:operation name="ObtenerConceptosPendientes">
+      <wsdl:documentation>
+        Conceptos del catalogo real que aun no se han clasificado, con el libro
+        y la categoria a la que pertenecen.
+      </wsdl:documentation>
+      <wsdl:input  message="tns:ObtenerConceptosPendientesIn"/>
+      <wsdl:output message="tns:ObtenerConceptosPendientesOut"/>
+      <wsdl:fault name="ClasificadorFault" message="tns:ClasificadorFault"/>
+    </wsdl:operation>
+
+    <wsdl:operation name="RegistrarClasificacion">
+      <wsdl:documentation>
+        Registra que un clasificador asigno un modelo Cloud a un concepto de un
+        libro. Un mismo clasificador no puede registrar dos veces el mismo
+        concepto: eso produce un Fault de conflicto.
+      </wsdl:documentation>
+      <wsdl:input  message="tns:RegistrarClasificacionIn"/>
+      <wsdl:output message="tns:RegistrarClasificacionOut"/>
+      <wsdl:fault name="ClasificadorFault" message="tns:ClasificadorFault"/>
+    </wsdl:operation>
+
+    <wsdl:operation name="ObtenerProgresoUsuario">
+      <wsdl:documentation>
+        Totales clasificados y pendientes del clasificador identificado por su
+        correo, desglosados por modelo.
+      </wsdl:documentation>
+      <wsdl:input  message="tns:ObtenerProgresoUsuarioIn"/>
+      <wsdl:output message="tns:ObtenerProgresoUsuarioOut"/>
+      <wsdl:fault name="ClasificadorFault" message="tns:ClasificadorFault"/>
+    </wsdl:operation>
+
+    <wsdl:operation name="ObtenerEstadisticasPorModelo">
+      <wsdl:documentation>
+        Conteo global por modelo Cloud. Operacion sensible: exige WS-Security
+        UsernameToken con PasswordDigest en el encabezado SOAP.
+      </wsdl:documentation>
+      <wsdl:input  message="tns:ObtenerEstadisticasPorModeloIn"/>
+      <wsdl:output message="tns:ObtenerEstadisticasPorModeloOut"/>
+      <wsdl:fault name="ClasificadorFault" message="tns:ClasificadorFault"/>
+    </wsdl:operation>
+
+  </wsdl:portType>
+
+  <!-- ===================================================================== -->
+  <!-- binding: como viajan esas capacidades sobre HTTP                      -->
+  <!-- ===================================================================== -->
+  <wsdl:binding name="LibraryClassifierBinding" type="tns:LibraryClassifierPortType">
+    <soap:binding style="document" transport="http://schemas.xmlsoap.org/soap/http"/>
+
+    <wsdl:operation name="ObtenerConceptosPendientes">
+      <soap:operation soapAction="http://udem.edu/iac/libreria/clasificador/ObtenerConceptosPendientes"/>
+      <wsdl:input><soap:body use="literal"/></wsdl:input>
+      <wsdl:output><soap:body use="literal"/></wsdl:output>
+      <wsdl:fault name="ClasificadorFault">
+        <soap:fault name="ClasificadorFault" use="literal"/>
+      </wsdl:fault>
+    </wsdl:operation>
+
+    <wsdl:operation name="RegistrarClasificacion">
+      <soap:operation soapAction="http://udem.edu/iac/libreria/clasificador/RegistrarClasificacion"/>
+      <wsdl:input><soap:body use="literal"/></wsdl:input>
+      <wsdl:output><soap:body use="literal"/></wsdl:output>
+      <wsdl:fault name="ClasificadorFault">
+        <soap:fault name="ClasificadorFault" use="literal"/>
+      </wsdl:fault>
+    </wsdl:operation>
+
+    <wsdl:operation name="ObtenerProgresoUsuario">
+      <soap:operation soapAction="http://udem.edu/iac/libreria/clasificador/ObtenerProgresoUsuario"/>
+      <wsdl:input><soap:body use="literal"/></wsdl:input>
+      <wsdl:output><soap:body use="literal"/></wsdl:output>
+      <wsdl:fault name="ClasificadorFault">
+        <soap:fault name="ClasificadorFault" use="literal"/>
+      </wsdl:fault>
+    </wsdl:operation>
+
+    <wsdl:operation name="ObtenerEstadisticasPorModelo">
+      <soap:operation soapAction="http://udem.edu/iac/libreria/clasificador/ObtenerEstadisticasPorModelo"/>
+      <wsdl:input>
+        <soap:body use="literal"/>
+        <!-- El UsernameToken de WS-Security viaja en el soap:Header, pero NO se
+             declara aqui como soap:header: eso reservaria una parte del mensaje
+             propio de la operacion y moveria el cuerpo al encabezado. El
+             encabezado wsse lo define OASIS y lo documenta el portType. =====-->
+      </wsdl:input>
+      <wsdl:output><soap:body use="literal"/></wsdl:output>
+      <wsdl:fault name="ClasificadorFault">
+        <soap:fault name="ClasificadorFault" use="literal"/>
+      </wsdl:fault>
+    </wsdl:operation>
+
+  </wsdl:binding>
+
+  <!-- ===================================================================== -->
+  <!-- service: donde vive                                                   -->
+  <!-- ===================================================================== -->
+  <wsdl:service name="LibraryClassifierService">
+    <wsdl:documentation>
+      Modulo SOAP de clasificacion Cloud. La direccion se reescribe en tiempo de
+      ejecucion con el host real de la peticion.
+    </wsdl:documentation>
+    <wsdl:port name="LibraryClassifierPort" binding="tns:LibraryClassifierBinding">
+      <soap:address location="http://localhost:5001/soap"/>
+    </wsdl:port>
+  </wsdl:service>
+
+</wsdl:definitions>

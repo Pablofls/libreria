@@ -1,0 +1,7 @@
+# Solo para la Tarea 4 (interoperabilidad) y para las pruebas que consumen el
+# servicio desde un stack distinto. NO se instala en el servidor: el modulo SOAP
+# no depende de zeep, esa es justamente la demostracion.
+#
+#     pip install -r requirements-interop.txt
+
+zeep==4.2.1

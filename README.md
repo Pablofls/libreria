@@ -252,6 +252,32 @@ imagenes_libros
   tamano_bytes       ← CHECK: > 0 y <= 2 MB
   texto_alternativo  ← accesibilidad
   es_portada         ← índice único parcial: una sola portada por libro
+
+
+──────────────── Tablas del módulo SOAP (services/library_soap_service) ────────
+Las crea sql/soap_module.sql, NO db/01_schema.sql. No modifican ninguna tabla
+del monolito: sólo la referencian por clave foránea.
+
+clasificadores                     clientes_servidos
+  id (PK)                            id (PK)
+  nombre · apellidos                 tipo_cliente  ┐U
+  correo (U)   ← CHECK formato       identificador ┘
+  creado_en                          peticiones_atendidas ← CHECK >= 0
+  ← identidad del cliente SOAP;      primera_peticion · ultima_peticion
+    NO reutiliza usuarios
+
+clasificaciones_cloud
+  id (PK)
+  clasificador_id     → clasificadores(id)      ON DELETE RESTRICT
+  (libro_id, concepto_id)
+                      → libros_conceptos(libro_id, concepto_id)  RESTRICT
+                        ← FK COMPUESTA: obliga a que el concepto esté
+                          DEFINIDO en ese libro, no sólo a que ambos existan
+  modelo              ← CHECK: IaaS | PaaS | SaaS | FaaS
+  cliente_servido_id  → clientes_servidos(id)   ON DELETE SET NULL
+  clasificado_en
+  U (clasificador_id, concepto_id) ← el mismo clasificador no registra
+                                     dos veces el mismo concepto → Fault 409
 ```
 
 ### Por qué cuatro tablas puente
@@ -284,6 +310,18 @@ El proceso completo, paso a paso desde la relación no normalizada, está en
 | Vista | `v_catalogo` | Proyección para el lector: sin el stock exacto |
 | Vista | `v_libros_conceptos` | Glosario aplanado libro–término–definición |
 | Vista | `v_inventario_por_categoria` | Resumen para el panel |
+
+Objetos del **módulo SOAP**, definidos en
+[`services/library_soap_service/sql/soap_module.sql`](services/library_soap_service/sql/soap_module.sql):
+
+| Tipo | Nombre | Para qué |
+|---|---|---|
+| Función | `fn_registrar_clasificacion` | Clasificador, contador y registro en una transacción |
+| Vista | `v_conceptos_clasificables` | Conceptos por libro, con ISBN y categoría |
+| Vista | `v_conceptos_pendientes` | Los que nadie ha clasificado todavía |
+| Vista | `v_progreso_clasificadores` | Totales clasificados y pendientes por clasificador |
+| Vista | `v_estadisticas_modelo` | Conteo por modelo Cloud |
+| Rol | `libreria_soap` | Mínimo privilegio: lectura por columna, sin `DELETE`, sin acceso a `usuarios` |
 
 ---
 

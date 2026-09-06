@@ -1,0 +1,15 @@
+<?xml version='1.0' encoding='utf-8'?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:tns="http://udem.edu/iac/libreria/clasificador">
+  <soap:Body>
+    <soap:Fault>
+      <faultcode>soap:Client</faultcode>
+      <faultstring>Falta el encabezado WS-Security.</faultstring>
+      <detail>
+        <tns:ClasificadorFault>
+          <tns:codigo>NO_AUTORIZADO</tns:codigo>
+          <tns:mensaje>Falta el encabezado WS-Security.</tns:mensaje>
+        </tns:ClasificadorFault>
+      </detail>
+    </soap:Fault>
+  </soap:Body>
+</soap:Envelope>

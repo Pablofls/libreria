@@ -1,0 +1,28 @@
+<?xml version='1.0' encoding='utf-8'?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:tns="http://udem.edu/iac/libreria/clasificador">
+  <soap:Body>
+    <tns:ObtenerEstadisticasPorModeloResponse>
+      <tns:generadoEn>2026-09-05T23:49:55.615498+00:00</tns:generadoEn>
+      <tns:estadistica>
+        <tns:modelo>FaaS</tns:modelo>
+        <tns:total>2</tns:total>
+        <tns:clasificadores>2</tns:clasificadores>
+      </tns:estadistica>
+      <tns:estadistica>
+        <tns:modelo>IaaS</tns:modelo>
+        <tns:total>3</tns:total>
+        <tns:clasificadores>3</tns:clasificadores>
+      </tns:estadistica>
+      <tns:estadistica>
+        <tns:modelo>PaaS</tns:modelo>
+        <tns:total>4</tns:total>
+        <tns:clasificadores>4</tns:clasificadores>
+      </tns:estadistica>
+      <tns:estadistica>
+        <tns:modelo>SaaS</tns:modelo>
+        <tns:total>3</tns:total>
+        <tns:clasificadores>3</tns:clasificadores>
+      </tns:estadistica>
+    </tns:ObtenerEstadisticasPorModeloResponse>
+  </soap:Body>
+</soap:Envelope>

@@ -1,0 +1,28 @@
+<?xml version='1.0' encoding='utf-8'?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:tns="http://udem.edu/iac/libreria/clasificador">
+  <soap:Body>
+    <tns:ObtenerConceptosPendientesResponse>
+      <tns:total>33</tns:total>
+      <tns:concepto>
+        <tns:conceptoId>1</tns:conceptoId>
+        <tns:termino>IaaS</tns:termino>
+        <tns:definicion>Modelo en el que se renta la maquina virtual y el estudiante instala el sistema operativo y PostgreSQL a mano.</tns:definicion>
+        <tns:isbn>978-607-32-3456-7</tns:isbn>
+        <tns:libro>Despliegue de aplicaciones en la nube publica</tns:libro>
+        <tns:categoria>Manual practico</tns:categoria>
+        <tns:capitulo>Capitulo 2</tns:capitulo>
+        <tns:pagina>31</tns:pagina>
+      </tns:concepto>
+      <tns:concepto>
+        <tns:conceptoId>1</tns:conceptoId>
+        <tns:termino>IaaS</tns:termino>
+        <tns:definicion>Primer modelo que estudia el alumno: se renta la maquina y se administra todo lo demas.</tns:definicion>
+        <tns:isbn>978-607-32-9012-3</tns:isbn>
+        <tns:libro>Computacion en la nube para estudiantes</tns:libro>
+        <tns:categoria>Infantil</tns:categoria>
+        <tns:capitulo>Capitulo 1</tns:capitulo>
+        <tns:pagina>14</tns:pagina>
+      </tns:concepto>
+    </tns:ObtenerConceptosPendientesResponse>
+  </soap:Body>
+</soap:Envelope>

@@ -1,0 +1,13 @@
+<?xml version='1.0' encoding='utf-8'?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:tns="http://udem.edu/iac/libreria/clasificador">
+  <soap:Body>
+    <tns:RegistrarClasificacionResponse>
+      <tns:clasificacionId>17</tns:clasificacionId>
+      <tns:termino>IaaS</tns:termino>
+      <tns:libro>Despliegue de aplicaciones en la nube publica</tns:libro>
+      <tns:modelo>IaaS</tns:modelo>
+      <tns:registradoEn>2026-09-05T17:49:55.609760-06:00</tns:registradoEn>
+      <tns:peticionesAtendidas>2</tns:peticionesAtendidas>
+    </tns:RegistrarClasificacionResponse>
+  </soap:Body>
+</soap:Envelope>
