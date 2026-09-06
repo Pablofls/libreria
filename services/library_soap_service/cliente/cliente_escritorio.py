@@ -203,6 +203,8 @@ class Aplicacion(tk.Tk):
                                        ('categoria', 'Categoria', 150)):
             self.tabla.heading(columna, text=titulo)
             self.tabla.column(columna, width=ancho, anchor='w')
+        # Las filas ya clasificadas en esta sesion se quedan a la vista, en gris.
+        self.tabla.tag_configure('registrado', foreground='#888888')
         self.tabla.pack(fill='both', expand=True, side='left')
         barra = ttk.Scrollbar(lista, orient='vertical', command=self.tabla.yview)
         barra.pack(side='right', fill='y')
@@ -247,12 +249,23 @@ class Aplicacion(tk.Tk):
             return None
         return datos
 
+    # No todo Fault es un error. Pedir el progreso antes de la primera
+    # clasificacion devuelve CLASIFICADOR_INEXISTENTE, que para quien estrena la
+    # aplicacion es el estado normal: pintarlo de rojo como una falla asusta sin
+    # motivo. El contrato hace bien en distinguirlo de un correo valido con cero
+    # registros; la GUI hace mal si presenta las dos cosas igual.
+    ESPERADOS = {'CLASIFICADOR_INEXISTENTE'}
+
     def _fallo(self, error):
         # Al usuario, el mensaje traducido. El codigo tecnico va al pie, para
         # que pueda reportarlo sin que la ventana parezca un stack trace.
-        messagebox.showerror('No se pudo completar', str(error))
-        self.estado.configure(text='Ultimo error: {}'.format(error.codigo),
-                              foreground='#b00')
+        if error.codigo in self.ESPERADOS:
+            messagebox.showinfo('Sin registros', str(error))
+            self.estado.configure(text=str(error), foreground='#555')
+        else:
+            messagebox.showerror('No se pudo completar', str(error))
+            self.estado.configure(
+                text='{}  ({})'.format(error, error.codigo), foreground='#b00')
 
     def cargar(self):
         correo = self.correo.get().strip() or None
@@ -300,7 +313,18 @@ class Aplicacion(tk.Tk):
         self.estado.configure(
             text='Registro #{}. Peticiones atendidas a este cliente: {}'.format(
                 resultado['id'], resultado['peticiones']), foreground='#060')
-        self.cargar()
+
+        # La lista NO se recarga aqui. Recargar borraria de la vista el concepto
+        # recien clasificado —ObtenerConceptosPendientes filtra por correo— justo
+        # cuando el usuario quiere ver el resultado de lo que hizo, y ademas
+        # dejaria fuera de alcance el conflicto por duplicado. La fila se marca y
+        # se queda; el boton Cargar refresca cuando el usuario lo decida.
+        fila = seleccion[0]
+        valores = list(self.tabla.item(fila, 'values'))
+        if not valores[0].startswith('✓'):
+            valores[0] = '✓ {}'.format(valores[0])
+            self.tabla.item(fila, values=valores)
+        self.tabla.item(fila, tags=('registrado',))
 
     def progreso(self):
         datos = self._datos(exigir_todo=False)
