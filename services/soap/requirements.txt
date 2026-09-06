@@ -1,0 +1,12 @@
+# Microservicio de catalogo (services/soap/app.py).
+#
+#     python3 -m venv .venv && . .venv/bin/activate
+#     pip install -r requirements.txt
+#
+# La interfaz de Swagger se carga desde un CDN en /docs: no hay dependencia de
+# swagger que instalar ni que quede desalineada con la version de Flask.
+
+Flask==3.0.3
+Flask-Cors==4.0.1
+psycopg2-binary==2.9.10
+python-dotenv==1.0.1

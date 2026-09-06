@@ -22,3 +22,19 @@ npm-debug.log*
 # Respaldos de base de datos
 *.sql.gz
 *.dump
+
+# Python (microservicio de services/soap/)
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Reporte web del Ejercicio 03: index.html, css/ y publicar.sh SÍ se versionan.
+# El resto lo genera publicar.sh copiando desde services/library_soap_service/,
+# así que versionarlo duplicaría los documentos y acabarían desincronizados.
+docs/ejercicio03/wsdl/
+docs/ejercicio03/sql/
+docs/ejercicio03/docs/
+docs/ejercicio03/evidencias/
+docs/ejercicio03/descargas/
+docs/ejercicio03/img/

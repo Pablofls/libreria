@@ -1,0 +1,208 @@
+/* =============================================================================
+   library.css — hoja de estilos del catalogo de la Libreria Online.
+
+   Se aplica sobre library.xml DIRECTAMENTE, sin HTML intermedio: la instruccion
+       <?xml-stylesheet type="text/css" href="library.css"?>
+   al inicio del XML hace que el navegador dibuje los propios elementos del
+   documento. Por eso los selectores son nombres de elemento (library, books,
+   book, title...) y no clases.
+
+   Consecuencia importante: un documento XML no trae hoja de estilos por
+   defecto, asi que TODO elemento nace como inline. Cada cosa que deba ocupar su
+   propio renglon lleva un display: block explicito, incluso donde el enunciado
+   solo pide margenes.
+   ========================================================================== */
+
+/* Sin esto, width: 100% + padding sumarian y el catalogo desbordaria a lo
+   ancho. No altera ninguno de los valores que pide el enunciado. */
+* {
+    box-sizing: border-box;
+}
+
+/* --- Contenedor principal (library) -------------------------------------- */
+library {
+    display: block;
+    width: 100%;
+    padding: 20px;
+    background-color: #f0f0f0;
+    font-family: Verdana, Geneva, Arial, Helvetica, sans-serif;
+}
+
+/* --- Caja que contiene todos los libros (books) -------------------------- */
+books {
+    display: block;
+    width: 100%;
+    background-color: #cccccc;
+    padding: 10px;
+    margin-bottom: 20px;
+}
+
+/* --- Cada libro individual (book) ---------------------------------------- */
+book {
+    display: block;
+    width: 100%;
+    background-color: #e0e0e0;
+    border: 1px solid #999;
+    padding: 10px;
+    margin-bottom: 10px;
+}
+
+/* --- Elementos dentro de cada libro -------------------------------------- */
+title {
+    display: block;
+    font-size: 1.2em;
+    font-weight: bold;
+    margin-bottom: 5px;
+}
+
+author {
+    font-style: italic;
+    margin-bottom: 5px;
+}
+
+genre {
+    display: block;
+    margin-bottom: 3px;
+    color: #666;
+}
+
+price {
+    display: block;
+    margin-bottom: 3px;
+    color: #009900;
+}
+
+stock {
+    display: block;
+    margin-bottom: 3px;
+    color: #ff0000;
+}
+
+format {
+    display: block;
+    margin-bottom: 3px;
+    color: #0000ff;
+}
+
+/* =============================================================================
+   Elementos del XML que el enunciado no enumera.
+
+   library.xml refleja un esquema normalizado hasta 4FN: los autores y los
+   generos son relaciones N:M y viajan dentro de <authors> y <genres>, y cada
+   libro trae ademas <year>, <images> y <concepts>. Sin reglas para ellos, esos
+   contenedores quedarian inline y el catalogo saldria como un parrafo corrido.
+   ========================================================================== */
+
+/* Los autores se leen mejor en una sola linea, separados por comas, que uno
+   por renglon. El margen inferior de 5px del enunciado vive aqui, porque es
+   este bloque —no cada autor suelto— el que se separa del resto. */
+authors {
+    display: block;
+    margin-bottom: 5px;
+}
+
+author:not(:last-child)::after {
+    content: ", ";
+    font-style: normal;
+}
+
+genres {
+    display: block;
+}
+
+year {
+    display: block;
+    margin-bottom: 3px;
+    color: #333;
+}
+
+/* El ISBN es un atributo de <book>, no un elemento: sin content: attr() no se
+   dibujaria en ninguna parte. */
+book::before {
+    content: "ISBN: " attr(isbn);
+    display: block;
+    margin-bottom: 5px;
+    font-size: 0.85em;
+    color: #555;
+}
+
+/* Etiquetas de campo. Los valores solos ("1249.00", "14") no dicen que son.
+   Heredan el color de su elemento, asi que la codificacion cromatica que pide
+   el enunciado se mantiene. */
+year::before   { content: "Ano: "; }
+genre::before  { content: "Genero: "; }
+price::before  { content: "Precio: $"; }
+stock::before  { content: "Stock: "; }
+format::before { content: "Formato: "; }
+
+/* --- Imagenes ------------------------------------------------------------
+   El XML guarda el nombre de archivo, no una ruta: la ruta base de uploads/ es
+   configuracion de la aplicacion. CSS no puede convertir ese texto en un <img>,
+   asi que se muestra como metadato, con el texto alternativo al frente. */
+images {
+    display: block;
+    margin: 8px 0 3px;
+}
+
+image {
+    display: block;
+    padding: 5px 8px;
+    border-left: 3px solid #999;
+    background-color: #f0f0f0;
+    font-size: 0.85em;
+}
+
+alt {
+    display: block;
+    color: #333;
+}
+
+file {
+    display: block;
+    color: #777;
+    font-family: "Courier New", Courier, monospace;
+    font-size: 0.9em;
+}
+
+/* --- Conceptos definidos por libro ---------------------------------------
+   El termino vive en el atributo term y la definicion en <description>: en el
+   esquema, la definicion pertenece al par (libro, concepto), porque el mismo
+   termino se define distinto en cada libro. */
+concepts {
+    display: block;
+    margin-top: 8px;
+}
+
+concepts::before {
+    content: "Conceptos definidos en este libro";
+    display: block;
+    font-weight: bold;
+    font-size: 0.9em;
+    margin-bottom: 5px;
+    color: #444;
+}
+
+/* Un libro sin conceptos no debe anunciar una lista vacia. */
+concepts:empty::before {
+    content: none;
+}
+
+concept {
+    display: block;
+    margin-bottom: 5px;
+    padding-left: 10px;
+    border-left: 2px solid #ccc;
+}
+
+concept::before {
+    content: attr(term);
+    display: block;
+    font-weight: bold;
+    color: #000;
+}
+
+description {
+    display: block;
+    font-size: 0.9em;
+    color: #333;
+}

@@ -1,0 +1,835 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/css" href="library.css"?>
+<!--
+  library.xml — catalogo de la Libreria Online expuesto por el servicio SOAP.
+
+  Cada <book> lleva el ISBN como atributo (clave candidata natural de la tabla
+  libros) y aplana las relaciones del esquema normalizado hasta 4FN:
+
+    <authors>  -> libros_autores  (N:M, en el orden de portada)
+    <genres>   -> libros_generos  (N:M)
+    <format>   -> formatos        (FK simple en libros)
+    <images>   -> imagenes_libros (1:N, una sola portada por libro)
+    <concepts> -> libros_conceptos: el termino vive en conceptos y la
+                 <description> pertenece al par (libro, concepto), porque el
+                 mismo termino se define distinto en cada libro.
+
+  Los nombres de elemento coinciden con las clases que pide la hoja de estilos
+  (library, books, book, title, author, genre, price, stock, format).
+  Generado desde db/02_seed_30_per_table.sql; ver db/01_schema.sql.
+-->
+<library>
+  <books>
+
+    <book isbn="978-0-13-609181-2">
+      <title>Cloud Computing: Concepts, Technology and Architecture</title>
+      <authors>
+        <author order="1" nationality="Canadiense">Thomas Erl</author>
+        <author order="2" nationality="Brasilena">Ricardo Puttini</author>
+        <author order="3" nationality="Britanica">Zaigham Mahmood</author>
+      </authors>
+      <year>2013</year>
+      <genres>
+        <genre>Computo en la nube</genre>
+        <genre>Arquitectura de software</genre>
+        <genre>Virtualizacion</genre>
+      </genres>
+      <price>1249.00</price>
+      <stock>14</stock>
+      <format>Pasta dura</format>
+      <images>
+        <image cover="true" type="image/png">
+          <file>7695dde9-3a32-4fe1-bb85-a1a50e2203e3.png</file>
+          <alt>Portada del libro Cloud Computing: Concepts, Technology and Architecture</alt>
+        </image>
+      </images>
+      <concepts>
+        <concept term="IaaS" chapter="Capitulo 4" page="112">
+          <description>Infraestructura como Servicio: el proveedor entrega computo, red y almacenamiento virtualizados; el cliente administra el sistema operativo hacia arriba.</description>
+        </concept>
+        <concept term="PaaS" chapter="Capitulo 4" page="118">
+          <description>Plataforma como Servicio: el proveedor administra tambien el entorno de ejecucion; el cliente solo aporta la aplicacion y sus datos.</description>
+        </concept>
+        <concept term="SaaS" chapter="Capitulo 4" page="124">
+          <description>Software como Servicio: la aplicacion completa se consume por red y el cliente no administra ninguna capa de infraestructura.</description>
+        </concept>
+        <concept term="FaaS" chapter="Capitulo 5" page="147">
+          <description>Funcion como Servicio: la unidad de despliegue es una funcion que el proveedor ejecuta y escala en respuesta a eventos.</description>
+        </concept>
+        <concept term="Bucket" chapter="Capitulo 6" page="178">
+          <description>Contenedor logico de almacenamiento de objetos, identificado por un nombre unico global y con politicas de acceso propias.</description>
+        </concept>
+        <concept term="Public Cloud" chapter="Capitulo 3" page="78">
+          <description>Nube publica: infraestructura compartida operada por un tercero y accesible por internet.</description>
+        </concept>
+        <concept term="Private Cloud" chapter="Capitulo 3" page="83">
+          <description>Nube privada: infraestructura de uso exclusivo de una organizacion, en sus instalaciones o alojada.</description>
+        </concept>
+        <concept term="Hybrid Cloud" chapter="Capitulo 3" page="89">
+          <description>Nube hibrida: combinacion de nube publica y privada con portabilidad de datos y aplicaciones entre ambas.</description>
+        </concept>
+        <concept term="Multicloud" chapter="Capitulo 3" page="95">
+          <description>Multinube: uso simultaneo de varios proveedores de nube publica para evitar dependencia de uno solo.</description>
+        </concept>
+        <concept term="Serverless" chapter="Capitulo 5" page="152">
+          <description>Sin servidor: modelo en el que el desarrollador no aprovisiona ni administra servidores; el proveedor asigna recursos por invocacion.</description>
+        </concept>
+        <concept term="Elasticidad" chapter="Capitulo 2" page="54">
+          <description>Capacidad del sistema para adquirir y liberar recursos automaticamente segun la demanda real.</description>
+        </concept>
+        <concept term="Autoescalado" chapter="Capitulo 7" page="203">
+          <description>Ajuste automatico del numero de instancias en funcion de metricas observadas.</description>
+        </concept>
+      </concepts>
+    </book>
+
+    <book isbn="978-1-4919-5035-7">
+      <title>Building Microservices</title>
+      <authors>
+        <author order="1" nationality="Britanica">Sam Newman</author>
+      </authors>
+      <year>2015</year>
+      <genres>
+        <genre>Microservicios</genre>
+        <genre>Arquitectura de software</genre>
+      </genres>
+      <price>989.50</price>
+      <stock>9</stock>
+      <format>Pasta blanda</format>
+      <images>
+        <image cover="true" type="image/png">
+          <file>e8912e70-f588-4f75-ae9c-e2e2ab14b983.png</file>
+          <alt>Portada del libro Building Microservices</alt>
+        </image>
+      </images>
+      <concepts>
+        <concept term="Region" chapter="Capitulo 8" page="210">
+          <description>Agrupacion geografica de centros de datos del proveedor, con latencia y jurisdiccion propias.</description>
+        </concept>
+        <concept term="Zona de disponibilidad" chapter="Capitulo 8" page="214">
+          <description>Ubicacion aislada dentro de una region, con energia y red independientes.</description>
+        </concept>
+        <concept term="Tolerancia a fallos" chapter="Capitulo 9" page="241">
+          <description>Propiedad del sistema de seguir operando aunque falle uno de sus componentes.</description>
+        </concept>
+        <concept term="Orquestacion" chapter="Capitulo 6" page="165">
+          <description>Coordinacion automatica del ciclo de vida de multiples contenedores en un conjunto de nodos.</description>
+        </concept>
+      </concepts>
+    </book>
+
+    <book isbn="978-0-321-12742-6">
+      <title>Patterns of Enterprise Application Architecture</title>
+      <authors>
+        <author order="1" nationality="Britanica">Martin Fowler</author>
+      </authors>
+      <year>2002</year>
+      <genres>
+        <genre>Arquitectura de software</genre>
+        <genre>Ingenieria de software</genre>
+      </genres>
+      <price>1180.00</price>
+      <stock>7</stock>
+      <format>Pasta dura</format>
+      <images>
+        <image cover="true" type="image/png">
+          <file>e8207d13-976e-4270-95f9-e2e18a67e44f.png</file>
+          <alt>Portada del libro Patterns of Enterprise Application Architecture</alt>
+        </image>
+      </images>
+      <concepts/>
+    </book>
+
+    <book isbn="978-0-201-63361-0">
+      <title>Design Patterns: Elements of Reusable Object-Oriented Software</title>
+      <authors>
+        <author order="1" nationality="Suiza">Erich Gamma</author>
+        <author order="2" nationality="Australiana">Richard Helm</author>
+        <author order="3" nationality="Estadounidense">Ralph Johnson</author>
+        <author order="4" nationality="Estadounidense">John Vlissides</author>
+      </authors>
+      <year>1994</year>
+      <genres>
+        <genre>Patrones de diseno</genre>
+        <genre>Diseno orientado a objetos</genre>
+      </genres>
+      <price>1420.00</price>
+      <stock>11</stock>
+      <format>Pasta dura</format>
+      <images>
+        <image cover="true" type="image/png">
+          <file>ca035b59-5147-4f6b-a455-94118ae8557e.png</file>
+          <alt>Portada del libro Design Patterns: Elements of Reusable Object-Oriented Software</alt>
+        </image>
+      </images>
+      <concepts/>
+    </book>
+
+    <book isbn="978-0-13-235088-4">
+      <title>Clean Code: A Handbook of Agile Software Craftsmanship</title>
+      <authors>
+        <author order="1" nationality="Estadounidense">Robert C. Martin</author>
+      </authors>
+      <year>2008</year>
+      <genres>
+        <genre>Ingenieria de software</genre>
+        <genre>Programacion</genre>
+      </genres>
+      <price>860.00</price>
+      <stock>22</stock>
+      <format>Pasta blanda</format>
+      <images>
+        <image cover="true" type="image/png">
+          <file>9d2bd165-f2da-4ea8-bd2a-f821354ff3c3.png</file>
+          <alt>Portada del libro Clean Code: A Handbook of Agile Software Craftsmanship</alt>
+        </image>
+      </images>
+      <concepts/>
+    </book>
+
+    <book isbn="978-0-13-359162-0">
+      <title>Modern Operating Systems</title>
+      <authors>
+        <author order="1" nationality="Neerlandesa">Andrew S. Tanenbaum</author>
+      </authors>
+      <year>2014</year>
+      <genres>
+        <genre>Sistemas operativos</genre>
+      </genres>
+      <price>1560.00</price>
+      <stock>6</stock>
+      <format>Pasta dura</format>
+      <images>
+        <image cover="true" type="image/png">
+          <file>c85276b7-52c6-4862-85a9-d776a973ebae.png</file>
+          <alt>Portada del libro Modern Operating Systems</alt>
+        </image>
+      </images>
+      <concepts/>
+    </book>
+
+    <book isbn="978-0-13-212695-3">
+      <title>Computer Networks</title>
+      <authors>
+        <author order="1" nationality="Neerlandesa">Andrew S. Tanenbaum</author>
+      </authors>
+      <year>2010</year>
+      <genres>
+        <genre>Redes de computadoras</genre>
+      </genres>
+      <price>1490.00</price>
+      <stock>8</stock>
+      <format>Pasta dura</format>
+      <images>
+        <image cover="true" type="image/png">
+          <file>dcfa4dee-f59a-4439-adaa-f33084f2652f.png</file>
+          <alt>Portada del libro Computer Networks</alt>
+        </image>
+      </images>
+      <concepts/>
+    </book>
+
+    <book isbn="978-0-13-187325-4">
+      <title>Database Systems: The Complete Book</title>
+      <authors>
+        <author order="1" nationality="Mexicana">Hector Garcia-Molina</author>
+        <author order="2" nationality="Estadounidense">Jennifer Widom</author>
+        <author order="3" nationality="Estadounidense">Jeffrey D. Ullman</author>
+      </authors>
+      <year>2008</year>
+      <genres>
+        <genre>Bases de datos</genre>
+      </genres>
+      <price>1720.00</price>
+      <stock>5</stock>
+      <format>Pasta dura</format>
+      <images>
+        <image cover="true" type="image/png">
+          <file>4f4dd547-8a8a-4592-98d9-df122cac167a.png</file>
+          <alt>Portada del libro Database Systems: The Complete Book</alt>
+        </image>
+      </images>
+      <concepts/>
+    </book>
+
+    <book isbn="978-0-471-11709-4">
+      <title>Applied Cryptography</title>
+      <authors>
+        <author order="1" nationality="Estadounidense">Bruce Schneier</author>
+      </authors>
+      <year>1996</year>
+      <genres>
+        <genre>Criptografia</genre>
+        <genre>Seguridad informatica</genre>
+      </genres>
+      <price>1310.00</price>
+      <stock>4</stock>
+      <format>Pasta dura</format>
+      <images>
+        <image cover="true" type="image/png">
+          <file>26fb05f1-2a1f-4b70-81aa-ab6bab133d83.png</file>
+          <alt>Portada del libro Applied Cryptography</alt>
+        </image>
+      </images>
+      <concepts/>
+    </book>
+
+    <book isbn="978-0-470-06852-6">
+      <title>Security Engineering</title>
+      <authors>
+        <author order="1" nationality="Britanica">Ross Anderson</author>
+      </authors>
+      <year>2008</year>
+      <genres>
+        <genre>Seguridad informatica</genre>
+        <genre>Sistemas distribuidos</genre>
+      </genres>
+      <price>1650.00</price>
+      <stock>3</stock>
+      <format>Pasta dura</format>
+      <images>
+        <image cover="true" type="image/png">
+          <file>22524b73-52bd-4e1d-a488-7bee3f13e6b4.png</file>
+          <alt>Portada del libro Security Engineering</alt>
+        </image>
+      </images>
+      <concepts/>
+    </book>
+
+    <book isbn="978-0-13-110362-7">
+      <title>The C Programming Language</title>
+      <authors>
+        <author order="1" nationality="Canadiense">Brian W. Kernighan</author>
+        <author order="2" nationality="Estadounidense">Dennis M. Ritchie</author>
+      </authors>
+      <year>1988</year>
+      <genres>
+        <genre>Programacion</genre>
+      </genres>
+      <price>640.00</price>
+      <stock>18</stock>
+      <format>Bolsillo</format>
+      <images>
+        <image cover="true" type="image/png">
+          <file>11c1fab6-5856-4567-9d87-88b74dd382e2.png</file>
+          <alt>Portada del libro The C Programming Language</alt>
+        </image>
+      </images>
+      <concepts/>
+    </book>
+
+    <book isbn="978-0-262-03384-8">
+      <title>Introduction to Algorithms</title>
+      <authors>
+        <author order="1" nationality="Estadounidense">Thomas H. Cormen</author>
+      </authors>
+      <year>2009</year>
+      <genres>
+        <genre>Algoritmos</genre>
+        <genre>Estructuras de datos</genre>
+      </genres>
+      <price>1890.00</price>
+      <stock>10</stock>
+      <format>Pasta dura</format>
+      <images>
+        <image cover="true" type="image/png">
+          <file>3c54f360-de5b-4cc6-ae53-4caa90a518a4.png</file>
+          <alt>Portada del libro Introduction to Algorithms</alt>
+        </image>
+      </images>
+      <concepts/>
+    </book>
+
+    <book isbn="978-0-201-89683-1">
+      <title>The Art of Computer Programming, Volume 1</title>
+      <authors>
+        <author order="1" nationality="Estadounidense">Donald E. Knuth</author>
+      </authors>
+      <year>1997</year>
+      <genres>
+        <genre>Algoritmos</genre>
+      </genres>
+      <price>2150.00</price>
+      <stock>2</stock>
+      <format>Edicion de lujo</format>
+      <images>
+        <image cover="true" type="image/png">
+          <file>e07d5deb-dd15-431b-9644-ace32ac1554f.png</file>
+          <alt>Portada del libro The Art of Computer Programming, Volume 1</alt>
+        </image>
+      </images>
+      <concepts/>
+    </book>
+
+    <book isbn="978-0-321-12521-7">
+      <title>Domain-Driven Design</title>
+      <authors>
+        <author order="1" nationality="Estadounidense">Eric Evans</author>
+      </authors>
+      <year>2003</year>
+      <genres>
+        <genre>Arquitectura de software</genre>
+        <genre>Ingenieria de software</genre>
+      </genres>
+      <price>1240.00</price>
+      <stock>6</stock>
+      <format>Pasta dura</format>
+      <images>
+        <image cover="true" type="image/png">
+          <file>667cb22f-701a-4fc2-a1a7-ad707e4464d7.png</file>
+          <alt>Portada del libro Domain-Driven Design</alt>
+        </image>
+      </images>
+      <concepts/>
+    </book>
+
+    <book isbn="978-0-321-14653-3">
+      <title>Test-Driven Development: By Example</title>
+      <authors>
+        <author order="1" nationality="Estadounidense">Kent Beck</author>
+      </authors>
+      <year>2002</year>
+      <genres>
+        <genre>Pruebas de software</genre>
+        <genre>Calidad de software</genre>
+      </genres>
+      <price>720.00</price>
+      <stock>13</stock>
+      <format>Pasta blanda</format>
+      <images>
+        <image cover="true" type="image/png">
+          <file>cb3f3c84-127f-4ab4-8acc-8abd93d388a4.png</file>
+          <alt>Portada del libro Test-Driven Development: By Example</alt>
+        </image>
+      </images>
+      <concepts/>
+    </book>
+
+    <book isbn="978-0-321-33025-4">
+      <title>Object-Oriented Analysis and Design with Applications</title>
+      <authors>
+        <author order="1" nationality="Estadounidense">Grady Booch</author>
+      </authors>
+      <year>2007</year>
+      <genres>
+        <genre>Diseno orientado a objetos</genre>
+        <genre>Ingenieria de software</genre>
+      </genres>
+      <price>1380.00</price>
+      <stock>5</stock>
+      <format>Pasta dura</format>
+      <images>
+        <image cover="true" type="image/png">
+          <file>77723469-fe3d-4333-82af-c21206defa9a.png</file>
+          <alt>Portada del libro Object-Oriented Analysis and Design with Applications</alt>
+        </image>
+      </images>
+      <concepts/>
+    </book>
+
+    <book isbn="978-1-942788-00-3">
+      <title>The Phoenix Project</title>
+      <authors>
+        <author order="1" nationality="Estadounidense">Gene Kim</author>
+      </authors>
+      <year>2013</year>
+      <genres>
+        <genre>DevOps</genre>
+      </genres>
+      <price>690.00</price>
+      <stock>16</stock>
+      <format>Pasta blanda</format>
+      <images>
+        <image cover="true" type="image/png">
+          <file>00890aed-2144-40ae-83d4-f4588c21fb8a.png</file>
+          <alt>Portada del libro The Phoenix Project</alt>
+        </image>
+      </images>
+      <concepts/>
+    </book>
+
+    <book isbn="978-1-942788-33-1">
+      <title>Accelerate</title>
+      <authors>
+        <author order="1" nationality="Estadounidense">Nicole Forsgren</author>
+        <author order="2" nationality="Estadounidense">Gene Kim</author>
+      </authors>
+      <year>2018</year>
+      <genres>
+        <genre>DevOps</genre>
+        <genre>Calidad de software</genre>
+      </genres>
+      <price>780.00</price>
+      <stock>12</stock>
+      <format>Pasta blanda</format>
+      <images>
+        <image cover="true" type="image/png">
+          <file>495a220b-4bae-47ca-b929-877a41c74385.png</file>
+          <alt>Portada del libro Accelerate</alt>
+        </image>
+      </images>
+      <concepts/>
+    </book>
+
+    <book isbn="978-0-321-60191-9">
+      <title>Continuous Delivery</title>
+      <authors>
+        <author order="1" nationality="Britanica">Jez Humble</author>
+        <author order="2" nationality="Estadounidense">Gene Kim</author>
+      </authors>
+      <year>2010</year>
+      <genres>
+        <genre>DevOps</genre>
+        <genre>Ingenieria de software</genre>
+      </genres>
+      <price>1150.00</price>
+      <stock>7</stock>
+      <format>Pasta dura</format>
+      <images>
+        <image cover="true" type="image/png">
+          <file>1bf2322e-5f10-45b4-9364-37709af676ed.png</file>
+          <alt>Portada del libro Continuous Delivery</alt>
+        </image>
+      </images>
+      <concepts/>
+    </book>
+
+    <book isbn="978-0-13-714476-0">
+      <title>Refactoring: Improving the Design of Existing Code</title>
+      <authors>
+        <author order="1" nationality="Britanica">Martin Fowler</author>
+      </authors>
+      <year>2018</year>
+      <genres>
+        <genre>Ingenieria de software</genre>
+        <genre>Patrones de diseno</genre>
+      </genres>
+      <price>1290.00</price>
+      <stock>9</stock>
+      <format>Pasta dura</format>
+      <images>
+        <image cover="true" type="image/png">
+          <file>09809909-f1e0-4b37-943e-c5f83787cc95.png</file>
+          <alt>Portada del libro Refactoring: Improving the Design of Existing Code</alt>
+        </image>
+      </images>
+      <concepts/>
+    </book>
+
+    <book isbn="978-607-32-1234-5">
+      <title>Fundamentos de bases de datos relacionales</title>
+      <authors>
+        <author order="1" nationality="Britanica">Chris J. Date</author>
+        <author order="2" nationality="Britanica">Edgar F. Codd</author>
+      </authors>
+      <year>2019</year>
+      <genres>
+        <genre>Bases de datos</genre>
+      </genres>
+      <price>520.00</price>
+      <stock>25</stock>
+      <format>Pasta blanda</format>
+      <images>
+        <image cover="true" type="image/png">
+          <file>fec9c853-dc0f-424d-b966-b9b008455824.png</file>
+          <alt>Portada del libro Fundamentos de bases de datos relacionales</alt>
+        </image>
+      </images>
+      <concepts>
+        <concept term="Replicacion" chapter="Capitulo 8" page="194">
+          <description>Mantener copias sincronizadas de una base de datos en varios servidores.</description>
+        </concept>
+        <concept term="Sharding" chapter="Capitulo 8" page="199">
+          <description>Particion horizontal de una tabla entre varios nodos segun una clave de distribucion.</description>
+        </concept>
+        <concept term="Teorema CAP" chapter="Capitulo 9" page="212">
+          <description>Teorema CAP: ante una particion de red hay que elegir entre consistencia y disponibilidad.</description>
+        </concept>
+      </concepts>
+    </book>
+
+    <book isbn="978-607-32-2345-6">
+      <title>Normalizacion practica hasta 4FN</title>
+      <authors>
+        <author order="1" nationality="Britanica">Edgar F. Codd</author>
+        <author order="2" nationality="Britanica">Chris J. Date</author>
+      </authors>
+      <year>2021</year>
+      <genres>
+        <genre>Bases de datos</genre>
+      </genres>
+      <price>480.00</price>
+      <stock>20</stock>
+      <format>Pasta blanda</format>
+      <images>
+        <image cover="true" type="image/png">
+          <file>d98bb54d-fb97-4406-b00e-5411fa759268.png</file>
+          <alt>Portada del libro Normalizacion practica hasta 4FN</alt>
+        </image>
+      </images>
+      <concepts>
+        <concept term="Normalizacion 4FN" chapter="Capitulo 5" page="103">
+          <description>Una relacion esta en 4FN si esta en BCNF y no contiene dos dependencias multivaluadas independientes sobre la misma clave.</description>
+        </concept>
+        <concept term="Transaccion ACID" chapter="Capitulo 6" page="128">
+          <description>Garantias que debe cumplir una transaccion para no dejar la base en un estado invalido.</description>
+        </concept>
+      </concepts>
+    </book>
+
+    <book isbn="978-607-32-3456-7">
+      <title>Despliegue de aplicaciones en la nube publica</title>
+      <authors>
+        <author order="1" nationality="Canadiense">Thomas Erl</author>
+      </authors>
+      <year>2022</year>
+      <genres>
+        <genre>Computo en la nube</genre>
+        <genre>DevOps</genre>
+      </genres>
+      <price>610.00</price>
+      <stock>17</stock>
+      <format>Pasta blanda</format>
+      <images>
+        <image cover="true" type="image/png">
+          <file>d58671d2-21b0-4d25-8728-8b280323f020.png</file>
+          <alt>Portada del libro Despliegue de aplicaciones en la nube publica</alt>
+        </image>
+      </images>
+      <concepts>
+        <concept term="IaaS" chapter="Capitulo 2" page="31">
+          <description>Modelo en el que se renta la maquina virtual y el estudiante instala el sistema operativo y PostgreSQL a mano.</description>
+        </concept>
+        <concept term="Serverless" chapter="Capitulo 7" page="156">
+          <description>Modelo donde no se administra la instancia; util para comparar contra el despliegue en Compute Engine de este ejercicio.</description>
+        </concept>
+        <concept term="Reverse proxy" chapter="Capitulo 5" page="98">
+          <description>Servidor intermedio que recibe la peticion del navegador y la reenvia a la aplicacion interna, que no se expone a internet.</description>
+        </concept>
+        <concept term="Alta disponibilidad" chapter="Capitulo 6" page="121">
+          <description>Diseno que mantiene el servicio disponible pese a fallas, mediante redundancia y conmutacion.</description>
+        </concept>
+        <concept term="Balanceador de carga" chapter="Capitulo 6" page="127">
+          <description>Componente que reparte peticiones entre varias instancias segun un algoritmo de distribucion.</description>
+        </concept>
+      </concepts>
+    </book>
+
+    <book isbn="978-607-32-4567-8">
+      <title>Introduccion a la virtualizacion y los contenedores</title>
+      <authors>
+        <author order="1" nationality="Canadiense">Thomas Erl</author>
+        <author order="2" nationality="Britanica">Sam Newman</author>
+      </authors>
+      <year>2020</year>
+      <genres>
+        <genre>Virtualizacion</genre>
+        <genre>Contenedores</genre>
+      </genres>
+      <price>545.00</price>
+      <stock>15</stock>
+      <format>Pasta blanda</format>
+      <images>
+        <image cover="true" type="image/png">
+          <file>9f0f36ef-075a-4454-9c0d-c93482ce0dbd.png</file>
+          <alt>Portada del libro Introduccion a la virtualizacion y los contenedores</alt>
+        </image>
+      </images>
+      <concepts>
+        <concept term="Maquina virtual" chapter="Capitulo 1" page="18">
+          <description>Emulacion completa de una computadora sobre un hipervisor, con su propio sistema operativo.</description>
+        </concept>
+        <concept term="Contenedor" chapter="Capitulo 3" page="62">
+          <description>Empaquetado que comparte el nucleo del anfitrion y aisla procesos, red y sistema de archivos.</description>
+        </concept>
+        <concept term="Orquestacion" chapter="Capitulo 5" page="108">
+          <description>Programacion, escalado y recuperacion automatica de contenedores en un cluster.</description>
+        </concept>
+        <concept term="Latencia" chapter="Capitulo 1" page="12">
+          <description>Reparto de un recurso fisico entre varios entornos logicos aislados entre si.</description>
+        </concept>
+      </concepts>
+    </book>
+
+    <book isbn="978-607-32-5678-9">
+      <title>Seguridad en aplicaciones web</title>
+      <authors>
+        <author order="1" nationality="Estadounidense">Kevin Mitnick</author>
+        <author order="2" nationality="Britanica">Ross Anderson</author>
+      </authors>
+      <year>2023</year>
+      <genres>
+        <genre>Seguridad informatica</genre>
+        <genre>Desarrollo web</genre>
+      </genres>
+      <price>590.00</price>
+      <stock>19</stock>
+      <format>Pasta blanda</format>
+      <images>
+        <image cover="true" type="image/png">
+          <file>cdc4d0c9-d2e0-49d7-aa3f-1650bfafa0d5.png</file>
+          <alt>Portada del libro Seguridad en aplicaciones web</alt>
+        </image>
+      </images>
+      <concepts>
+        <concept term="Reverse proxy" chapter="Capitulo 4" page="88">
+          <description>Punto unico de entrada que ademas termina TLS y oculta la topologia interna del sistema.</description>
+        </concept>
+        <concept term="Idempotencia" chapter="Capitulo 6" page="141">
+          <description>Propiedad de una operacion que produce el mismo resultado aunque se ejecute varias veces.</description>
+        </concept>
+      </concepts>
+    </book>
+
+    <book isbn="978-607-32-6789-0">
+      <title>PostgreSQL para desarrolladores</title>
+      <authors>
+        <author order="1" nationality="Estadounidense">Michael Stonebraker</author>
+      </authors>
+      <year>2022</year>
+      <genres>
+        <genre>Bases de datos</genre>
+      </genres>
+      <price>575.00</price>
+      <stock>21</stock>
+      <format>Pasta blanda</format>
+      <images>
+        <image cover="true" type="image/png">
+          <file>b10c7599-1206-4bb4-8061-5e6b671e3230.png</file>
+          <alt>Portada del libro PostgreSQL para desarrolladores</alt>
+        </image>
+      </images>
+      <concepts>
+        <concept term="Replicacion" chapter="Capitulo 9" page="231">
+          <description>Copia de los datos en mas de un nodo para lectura escalable o recuperacion ante fallas.</description>
+        </concept>
+        <concept term="Transaccion ACID" chapter="Capitulo 7" page="178">
+          <description>Unidad de trabajo atomica, consistente, aislada y durable.</description>
+        </concept>
+        <concept term="Normalizacion 4FN" chapter="Capitulo 4" page="96">
+          <description>Cuarta forma normal: elimina las dependencias multivaluadas independientes dentro de una misma relacion.</description>
+        </concept>
+      </concepts>
+    </book>
+
+    <book isbn="978-607-32-7890-1">
+      <title>Node.js del lado del servidor</title>
+      <authors>
+        <author order="1" nationality="Estadounidense">Robert C. Martin</author>
+      </authors>
+      <year>2023</year>
+      <genres>
+        <genre>Desarrollo web</genre>
+        <genre>Programacion</genre>
+      </genres>
+      <price>560.00</price>
+      <stock>23</stock>
+      <format>Pasta blanda</format>
+      <images>
+        <image cover="true" type="image/png">
+          <file>e13b9e4b-6051-4684-acf6-b49f918a418a.png</file>
+          <alt>Portada del libro Node.js del lado del servidor</alt>
+        </image>
+      </images>
+      <concepts>
+        <concept term="Cache" chapter="Capitulo 7" page="164">
+          <description>Almacenamiento temporal de resultados costosos para responder mas rapido a peticiones repetidas.</description>
+        </concept>
+        <concept term="Latencia" chapter="Capitulo 7" page="158">
+          <description>Tiempo transcurrido entre la peticion y la primera respuesta util.</description>
+        </concept>
+        <concept term="Throughput" chapter="Capitulo 7" page="161">
+          <description>Cantidad de peticiones atendidas por unidad de tiempo.</description>
+        </concept>
+      </concepts>
+    </book>
+
+    <book isbn="978-607-32-8901-2">
+      <title>Arquitectura monolitica bien hecha</title>
+      <authors>
+        <author order="1" nationality="Britanica">Martin Fowler</author>
+        <author order="2" nationality="Britanica">Sam Newman</author>
+      </authors>
+      <year>2024</year>
+      <genres>
+        <genre>Arquitectura de software</genre>
+        <genre>Microservicios</genre>
+      </genres>
+      <price>620.00</price>
+      <stock>11</stock>
+      <format>Pasta blanda</format>
+      <images>
+        <image cover="true" type="image/png">
+          <file>57385865-481a-4de2-b2dd-0565b20faf2a.png</file>
+          <alt>Portada del libro Arquitectura monolitica bien hecha</alt>
+        </image>
+      </images>
+      <concepts>
+        <concept term="Reverse proxy" chapter="Capitulo 3" page="71">
+          <description>En un monolito server-side, el proxy inverso publica la aplicacion bajo un prefijo de ruta sin exponer el puerto interno.</description>
+        </concept>
+        <concept term="Idempotencia" chapter="Capitulo 5" page="119">
+          <description>Operacion segura de reintentar: base para formularios que se reenvian por error.</description>
+        </concept>
+      </concepts>
+    </book>
+
+    <book isbn="978-607-32-9012-3">
+      <title>Computacion en la nube para estudiantes</title>
+      <authors>
+        <author order="1" nationality="Canadiense">Thomas Erl</author>
+        <author order="2" nationality="Britanica">Zaigham Mahmood</author>
+      </authors>
+      <year>2024</year>
+      <genres>
+        <genre>Computo en la nube</genre>
+        <genre>Divulgacion tecnica</genre>
+      </genres>
+      <price>430.00</price>
+      <stock>27</stock>
+      <format>Manual de laboratorio</format>
+      <images>
+        <image cover="true" type="image/png">
+          <file>e0ad3837-3ea3-4137-90d7-ec21c73f309c.png</file>
+          <alt>Portada del libro Computacion en la nube para estudiantes</alt>
+        </image>
+      </images>
+      <concepts>
+        <concept term="IaaS" chapter="Capitulo 1" page="14">
+          <description>Primer modelo que estudia el alumno: se renta la maquina y se administra todo lo demas.</description>
+        </concept>
+        <concept term="PaaS" chapter="Capitulo 1" page="19">
+          <description>Segundo modelo: el proveedor administra el entorno de ejecucion de la aplicacion.</description>
+        </concept>
+        <concept term="SaaS" chapter="Capitulo 1" page="24">
+          <description>Tercer modelo: la aplicacion se consume ya terminada, por suscripcion.</description>
+        </concept>
+        <concept term="Bucket" chapter="Capitulo 4" page="67">
+          <description>Deposito de objetos donde el alumno guarda las imagenes de practica.</description>
+        </concept>
+      </concepts>
+    </book>
+
+    <book isbn="978-607-32-0123-4">
+      <title>Historia de la computacion en Mexico</title>
+      <authors>
+        <author order="1" nationality="Mexicana">Hector Garcia-Molina</author>
+      </authors>
+      <year>2021</year>
+      <genres>
+        <genre>Etica y tecnologia</genre>
+      </genres>
+      <price>395.00</price>
+      <stock>8</stock>
+      <format>Pasta dura</format>
+      <images>
+        <image cover="true" type="image/png">
+          <file>90dbac0e-3f71-4b46-ae6a-ccb3056110db.png</file>
+          <alt>Portada del libro Historia de la computacion en Mexico</alt>
+        </image>
+      </images>
+      <concepts/>
+    </book>
+
+  </books>
+</library>
