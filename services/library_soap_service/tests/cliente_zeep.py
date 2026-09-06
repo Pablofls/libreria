@@ -20,6 +20,18 @@ from zeep import Client
 from zeep.exceptions import Fault
 from zeep.wsse.username import UsernameToken
 
+# Las credenciales se leen del .env del modulo, no de la linea de comandos:
+# pasarlas como variables al invocar el script las dejaria en el historial del
+# shell. python-dotenv es opcional aqui, para que las pruebas sigan corriendo en
+# un entorno que solo tenga la biblioteca estandar.
+try:
+    from dotenv import load_dotenv
+    load_dotenv(os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))), '.env'))
+except ImportError:
+    pass
+
+
 WSDL = sys.argv[1] if len(sys.argv) > 1 else 'http://127.0.0.1:5001/soap?wsdl'
 CORREO = os.getenv('CORREO_PRUEBA',
                    'interop.{}@libreria.udem.mx'.format(int(datetime.now().timestamp())))

@@ -23,6 +23,18 @@ from xml.etree import ElementTree as ET
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from soap.security import construir_token  # noqa: E402
 
+# Las credenciales se leen del .env del modulo, no de la linea de comandos:
+# pasarlas como variables al invocar el script las dejaria en el historial del
+# shell. python-dotenv es opcional aqui, para que las pruebas sigan corriendo en
+# un entorno que solo tenga la biblioteca estandar.
+try:
+    from dotenv import load_dotenv
+    load_dotenv(os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))), '.env'))
+except ImportError:
+    pass
+
+
 ENDPOINT = os.getenv('ENDPOINT', 'http://127.0.0.1:5001/soap')
 WSSE_USUARIO = os.getenv('WSSE_USUARIO', 'reportes')
 WSSE_SECRETO = os.getenv('WSSE_SECRETO', '')

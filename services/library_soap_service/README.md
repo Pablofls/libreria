@@ -71,8 +71,12 @@ El contrato queda en `http://<host>:5001/soap?wsdl` y el endpoint en
 ### 3. Pruebas
 
 ```bash
-ENDPOINT=http://127.0.0.1:5001/soap WSSE_SECRETO=... python3 tests/pruebas_soap.py --markdown
+python3 tests/pruebas_soap.py --markdown
 ```
+
+Las credenciales salen del `.env`, no de la línea de comandos: pasarlas al
+invocar el script las dejaría en el historial del shell. `ENDPOINT` sí se puede
+pasar así, para apuntar a otra máquina.
 
 18 pruebas: 7 positivas y 11 negativas. Escribe `tests/resultados.md`.
 
@@ -89,7 +93,7 @@ Tkinter viene con Python: no instala nada. La GUI **no conoce PostgreSQL**; su
 
 ```bash
 pip install -r requirements-interop.txt
-WSSE_SECRETO=... python3 tests/cliente_zeep.py http://<host>:5001/soap?wsdl
+python3 tests/cliente_zeep.py http://<host>:5001/soap?wsdl
 ```
 
 ## Seguridad
