@@ -1,0 +1,73 @@
+# =============================================================================
+# deploy/libreria-soap.service
+# Unidad de systemd del modulo SOAP de clasificacion Cloud.
+#
+#     sudo cp deploy/libreria-soap.service /etc/systemd/system/
+#     sudo systemctl daemon-reload
+#     sudo systemctl enable --now libreria-soap
+#     sudo systemctl status libreria-soap
+#     journalctl -u libreria-soap -f
+#
+# Sin esto, `python app.py` muere al cerrar la sesion SSH.
+#
+# Es un servicio SEPARADO de libreria.service a proposito: son dos aplicaciones
+# independientes, en dos puertos, con dos roles de PostgreSQL distintos. Si una
+# se cae, la otra sigue. Reiniciar el modulo SOAP no toca al monolito.
+# =============================================================================
+
+[Unit]
+Description=Modulo SOAP de clasificacion Cloud (Flask + PostgreSQL)
+Documentation=file:/opt/udem/libreria/services/library_soap_service/README.md
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pablogcp26
+Group=pablogcp26
+WorkingDirectory=/opt/udem/libreria/services/library_soap_service
+
+# Gunicorn y no `python app.py`: el servidor de desarrollo de Flask lo dice el
+# mismo al arrancar, no esta hecho para servir de verdad.
+#
+# UN SOLO WORKER, y no es por modestia de recursos. La proteccion contra
+# reenvios de WS-Security guarda los nonces ya usados en memoria del proceso
+# (soap/security.py). Con dos workers, un sobre rechazado por uno seria aceptado
+# por el otro y la prueba N11 dejaria de tener sentido. La concurrencia se
+# resuelve con hilos, que comparten esa memoria.
+#
+# Si algun dia hicieran falta varios workers, primero hay que mover esa cache a
+# Redis o a una tabla. Esta anotado como limitacion en la documentacion tecnica.
+ExecStart=/opt/udem/libreria/services/library_soap_service/.venv/bin/gunicorn \
+    --workers 1 \
+    --threads 8 \
+    --bind 0.0.0.0:5001 \
+    --timeout 30 \
+    --access-logfile - \
+    --error-logfile - \
+    app:app
+
+Restart=on-failure
+RestartSec=5
+
+# El .env lo lee python-dotenv desde el WorkingDirectory. Debe pertenecer al
+# usuario que ejecuta el servicio y tener permisos 600: contiene la contrasena
+# de libreria_soap y el secreto de WS-Security.
+
+# --- Endurecimiento -----------------------------------------------------------
+# Este servicio no escribe un solo archivo: no sube imagenes ni genera nada en
+# disco. Por eso no lleva ningun ReadWritePaths, al contrario que el monolito.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=libreria-soap
+
+[Install]
+WantedBy=multi-user.target

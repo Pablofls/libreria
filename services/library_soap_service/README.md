@@ -69,6 +69,19 @@ python app.py
 El contrato queda en `http://<host>:5001/soap?wsdl` y el endpoint en
 `http://<host>:5001/soap`. `GET /health` responde el estado de la conexión.
 
+`python app.py` es para desarrollo. En la VM el servicio corre bajo systemd con
+Gunicorn, y sobrevive a cerrar la sesión y a reiniciar la máquina:
+
+```bash
+sudo cp deploy/libreria-soap.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now libreria-soap
+```
+
+**Un solo worker, a propósito:** la protección contra reenvíos de WS-Security
+guarda los nonces en memoria del proceso. Con cuatro workers, la prueba N11 pasa
+de rechazar el token reenviado a aceptarlo con HTTP 200.
+
 ### 3. Pruebas
 
 ```bash

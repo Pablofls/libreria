@@ -3,9 +3,13 @@
 #     python3 -m venv .venv && source .venv/bin/activate
 #     pip install -r requirements.txt
 #
-# Solo tres dependencias, las que autoriza el enunciado. El sobre SOAP, el
-# WSDL y los Faults se construyen a mano con xml.etree, que es de la biblioteca
-# estandar: no hay Spyne ni Zeep del lado del servidor.
+# El sobre SOAP, el WSDL y los Faults se construyen a mano con xml.etree, que es
+# de la biblioteca estandar: no hay Spyne ni Zeep del lado del servidor. Esa es
+# la parte que pide el enunciado y no tiene dependencias.
+#
+# Gunicorn no participa en SOAP: sirve la aplicacion en la VM, porque el
+# servidor de desarrollo de Flask avisa el mismo de que no esta hecho para eso.
+# Ver deploy/libreria-soap.service.
 #
 # psycopg2-binary 2.9.10 y no 2.9.9: la 2.9.9 no publica rueda para Python 3.13
 # e intenta compilar desde fuente.
@@ -13,3 +17,4 @@
 Flask==3.0.3
 psycopg2-binary==2.9.10
 python-dotenv==1.0.1
+gunicorn==22.0.0

@@ -385,8 +385,19 @@ hubiera tocado su código. Mitigaciones, de menor a mayor costo:
    tocar sus tablas. Fuera del alcance de este ejercicio.
 
 **Escalabilidad:** el estado del servicio es la caché de nonces de WS-Security,
-que vive en memoria del proceso. Con un solo worker es correcto; con varios
-habría que moverla a Redis o a una tabla. Está anotado en el código.
+que vive en memoria del proceso. Con un solo worker es correcto; con varios,
+no — y no es teórico. Corriendo la misma suite bajo Gunicorn:
+
+| Configuración | Prueba N11 (reenvío del mismo token) |
+|---|---|
+| `--workers 1 --threads 8` | `NO_AUTORIZADO` / HTTP 401 — rechazado |
+| `--workers 4` | **HTTP 200 — aceptado** |
+
+Con cuatro procesos, el sobre que un worker ya rechazó lo acepta otro, y la
+protección contra reenvíos desaparece sin que nada avise. Por eso
+`deploy/libreria-soap.service` fija un worker y resuelve la concurrencia con
+hilos, que comparten esa memoria. Para escalar a varios procesos hay que mover
+la caché a Redis o a una tabla antes, no después.
 
 ---
 
