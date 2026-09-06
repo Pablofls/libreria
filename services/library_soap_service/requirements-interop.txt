@@ -4,4 +4,7 @@
 #
 #     pip install -r requirements-interop.txt
 
-zeep==4.2.1
+# 4.3 o superior, no 4.2.1: esa version importa el modulo `cgi`, retirado en
+# Python 3.13, y falla al importarse. El rango deja que pip elija la que
+# corresponda a la version de Python de cada maquina.
+zeep>=4.3.1,<5
