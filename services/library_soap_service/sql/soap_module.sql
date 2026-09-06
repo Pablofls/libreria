@@ -2,7 +2,13 @@
 -- soap_module.sql
 -- Persistencia propia del modulo SOAP de clasificacion Cloud (Ejercicio 03).
 --
---     psql -U libreria_owner -d libreria_db -f services/library_soap_service/sql/soap_module.sql
+--     sudo -u postgres psql -d libreria_db \
+--         -f services/library_soap_service/sql/soap_module.sql
+--
+-- Se ejecuta como SUPERUSUARIO, porque crea un rol y otorga permisos sobre
+-- tablas que no le pertenecen. Al final reasigna sus objetos al mismo dueno que
+-- tienen las tablas del monolito, sea cual sea el nombre de ese rol en esta
+-- instalacion: no se supone que se llame de una forma concreta.
 --
 -- QUE HACE
 --   Crea las tres tablas propias del modulo (clasificadores,
@@ -322,7 +328,13 @@ BEGIN
     END IF;
 END $$;
 
-GRANT CONNECT ON DATABASE libreria_db TO libreria_soap;
+-- El nombre de la base se toma de la conexion actual, no se escribe a mano: asi
+-- el script sirve igual en una instalacion que la llame distinto.
+DO $$
+BEGIN
+    EXECUTE format('GRANT CONNECT ON DATABASE %I TO libreria_soap',
+                   current_database());
+END $$;
 GRANT USAGE   ON SCHEMA public        TO libreria_soap;
 
 -- Lectura del monolito: solo las columnas que el contrato expone.
@@ -361,6 +373,55 @@ GRANT EXECUTE ON FUNCTION fn_registrar_clasificacion(
 --
 -- \password la pide de forma interactiva y no la deja en ~/.psql_history.
 -- -----------------------------------------------------------------------------
+
+-- -----------------------------------------------------------------------------
+-- Alinear el dueno de los objetos del modulo con el del monolito.
+--
+-- Este script corre como superusuario, asi que por omision todo lo que crea
+-- queda a nombre de postgres, mientras que las tablas del monolito pertenecen a
+-- otro rol. Esa mezcla obliga a ser superusuario para cualquier ALTER futuro y
+-- es la clase de detalle que nadie recuerda seis meses despues.
+--
+-- El dueno NO se escribe a mano: se deduce del dueno real de la tabla libros. La
+-- documentacion del repositorio hablaba de libreria_owner y la instalacion usa
+-- libreria_user; preguntarle a la base evita volver a equivocarse.
+-- -----------------------------------------------------------------------------
+DO $$
+DECLARE
+    v_dueno text;
+    v_objeto text;
+BEGIN
+    SELECT tableowner INTO v_dueno
+    FROM pg_tables WHERE schemaname = 'public' AND tablename = 'libros';
+
+    IF v_dueno IS NULL THEN
+        RAISE NOTICE 'No se encontro la tabla libros: se omite el ajuste de dueno.';
+        RETURN;
+    END IF;
+    IF v_dueno = current_user THEN
+        RAISE NOTICE 'Los objetos ya pertenecen a %: no hay nada que ajustar.', v_dueno;
+        RETURN;
+    END IF;
+
+    FOREACH v_objeto IN ARRAY ARRAY['clasificadores', 'clasificaciones_cloud',
+                                    'clientes_servidos'] LOOP
+        EXECUTE format('ALTER TABLE %I OWNER TO %I', v_objeto, v_dueno);
+    END LOOP;
+
+    FOREACH v_objeto IN ARRAY ARRAY['v_conceptos_clasificables',
+                                    'v_conceptos_pendientes',
+                                    'v_progreso_clasificadores',
+                                    'v_estadisticas_modelo'] LOOP
+        EXECUTE format('ALTER VIEW %I OWNER TO %I', v_objeto, v_dueno);
+    END LOOP;
+
+    -- Las secuencias de las columnas SERIAL siguen a su tabla.
+    EXECUTE format('ALTER FUNCTION fn_registrar_clasificacion(
+        VARCHAR, VARCHAR, VARCHAR, INTEGER, VARCHAR, VARCHAR, VARCHAR, VARCHAR)
+        OWNER TO %I', v_dueno);
+
+    RAISE NOTICE 'Objetos del modulo reasignados a %.', v_dueno;
+END $$;
 
 -- Inventario de control.
 SELECT relname AS objeto, relkind AS tipo
