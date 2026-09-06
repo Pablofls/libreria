@@ -38,7 +38,27 @@ WorkingDirectory=/opt/udem/libreria/services/library_soap_service
 #
 # Si algun dia hicieran falta varios workers, primero hay que mover esa cache a
 # Redis o a una tabla. Esta anotado como limitacion en la documentacion tecnica.
-ExecStart=/opt/udem/libreria/services/library_soap_service/.venv/bin/gunicorn \
+# Se invoca el INTERPRETE del entorno virtual con -m gunicorn, y no el script
+# .venv/bin/gunicorn directamente. La razon es SELinux:
+#
+#   $ ls -laZ .venv/bin/gunicorn
+#   ... unconfined_u:object_r:user_home_t:s0 ... gunicorn
+#
+# Los archivos del repositorio quedaron etiquetados user_home_t, y systemd no
+# puede ejecutar ese tipo: falla con 203/EXEC y "Permission denied". En cambio
+# .venv/bin/python3 es un enlace simbolico a /usr/bin/python3, que si tiene la
+# etiqueta bin_t; para la comprobacion de ejecucion cuenta el contexto del
+# DESTINO del enlace, asi que esta forma pasa.
+#
+# El venv sigue activo: Python detecta pyvenv.cfg a partir de la ruta desde la
+# que se le invoco, no del destino del enlace. Verificado: sys.prefix apunta al
+# venv y las dependencias se cargan de ahi.
+#
+# La alternativa era etiquetar el arbol con semanage fcontext + restorecon. Se
+# descarto porque obliga a configurar SELinux a mano en cada despliegue y a
+# recordar rehacerlo tras un git clone nuevo.
+ExecStart=/opt/udem/libreria/services/library_soap_service/.venv/bin/python3 \
+    -m gunicorn \
     --workers 1 \
     --threads 8 \
     --bind 0.0.0.0:5001 \
