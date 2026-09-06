@@ -1,4 +1,17 @@
 -- =============================================================================
+-- 20260905-modulo-soap-tablas-propias.sql   [APLICADO en la VM el 2026-09-05]
+--
+-- Copia literal de services/library_soap_service/sql/soap_module.sql tal como
+-- se ejecuto en la VM (commit 80b6daf). Es una instantanea historica: no se
+-- edita. El script vivo del modulo sigue evolucionando en services/, y toda
+-- correccion posterior entra como archivo nuevo en db/pending/.
+--
+-- Antes vivia aqui un enlace simbolico al script del modulo. Fue un error: un
+-- enlace hace que el historial de lo aplicado cambie cada vez que se edita el
+-- original, que es exactamente lo que db/applied/ debe impedir.
+-- =============================================================================
+
+-- =============================================================================
 -- soap_module.sql
 -- Persistencia propia del modulo SOAP de clasificacion Cloud (Ejercicio 03).
 --
@@ -97,16 +110,8 @@ CREATE TABLE IF NOT EXISTS clientes_servidos (
 --   DEFINIDO en ese libro. libros_conceptos tiene justamente esa PK compuesta,
 --   asi que la base garantiza la combinacion y el servicio no tiene que
 --   comprobarla a mano. Es la restriccion mas valiosa de todo el script.
--- ON DELETE CASCADE hacia libros_conceptos: si el bibliotecario borra el libro o
---   le quita ese concepto, la clasificacion deja de referirse a algo real y se
---   va con el. La primera version usaba RESTRICT, con el argumento de proteger
---   el registro de auditoria; el efecto real era que el modulo le impedia al
---   monolito borrar un libro, es decir, un componente nuevo secuestrando una
---   operacion del sistema existente. El modulo NO es el sistema de registro del
---   catalogo. Se prefiere perder la clasificacion antes que bloquear al dueno
---   del dato.
--- ON DELETE RESTRICT hacia clasificadores: esa si es tabla del modulo, asi que
---   la restriccion no acopla a nadie de fuera.
+-- ON DELETE RESTRICT hacia libros_conceptos y clasificadores: un registro de
+--   auditoria no debe desaparecer en silencio porque alguien edito el catalogo.
 -- ON DELETE SET NULL hacia clientes_servidos: si se depura la telemetria, la
 --   clasificacion sobrevive; el cliente era contexto, no sujeto.
 -- UNIQUE(clasificador_id, concepto_id): la restriccion que pide el enunciado.
@@ -131,7 +136,7 @@ CREATE TABLE IF NOT EXISTS clasificaciones_cloud (
         REFERENCES clasificadores (id) ON UPDATE CASCADE ON DELETE RESTRICT,
     CONSTRAINT fk_cc_libro_concepto FOREIGN KEY (libro_id, concepto_id)
         REFERENCES libros_conceptos (libro_id, concepto_id)
-        ON UPDATE CASCADE ON DELETE CASCADE,
+        ON UPDATE CASCADE ON DELETE RESTRICT,
     CONSTRAINT fk_cc_cliente FOREIGN KEY (cliente_servido_id)
         REFERENCES clientes_servidos (id) ON UPDATE CASCADE ON DELETE SET NULL
 );

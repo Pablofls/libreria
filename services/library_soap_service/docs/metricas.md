@@ -101,9 +101,11 @@ está disponible y permitir reintentar. `cliente_escritorio.py` traduce cada
 código a un mensaje y nunca muestra el detalle técnico.
 
 **¿Qué riesgo existe porque el módulo SOAP y el monolito comparten base?** El
-acoplamiento por esquema: un cambio en el monolito puede romper el módulo sin que
-nadie toque su código, y la clave foránea compuesta del módulo puede bloquear un
-`ALTER` del monolito. Mitigado con vistas y permisos de columna.
+acoplamiento por esquema, y va en los dos sentidos. Un cambio en el monolito
+puede romper el módulo sin que nadie toque su código; y al revés, una restricción
+del módulo puede bloquearle una operación al monolito — que es exactamente lo que
+pasó con la clave foránea `RESTRICT` que impedía borrar un libro clasificado.
+Mitigado con vistas, permisos de columna y `ON DELETE CASCADE`.
 
 **¿Qué ocurriría si el monolito renombra `libros.isbn`?** La vista
 `v_conceptos_clasificables` fallaría y con ella todas las lecturas. Se reduce

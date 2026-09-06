@@ -35,6 +35,32 @@ operaciones. **Falta ejecutarlo en la VM contra la base real.**
 
 **18 pruebas, 0 fallidas.**
 
+## Pruebas de regresión del monolito
+
+`sql/…` no: `tests/regresion_monolito.sql`. Se ejecuta con psql y **todo ocurre
+dentro de una transacción que termina en `ROLLBACK`**, así que es seguro correrlo
+contra la base real: crea datos, borra libros de verdad para comprobar que se
+puede, y al final no queda nada.
+
+```bash
+sudo -u postgres psql -d libreria_db -f services/library_soap_service/tests/regresion_monolito.sql
+```
+
+| ID | Prueba | Resultado esperado | Obtenido | Estado |
+|---|---|---|---|---|
+| R01 | Quitarle a un libro un concepto clasificado | El monolito puede | Puede | PASA |
+| R02 | Borrar un libro con conceptos clasificados | El monolito puede | Puede | PASA |
+| R03 | Clasificar un concepto no definido en ese libro | La base lo impide | Lo impide | PASA |
+| R04 | `sp_guardar_concepto_libro` del monolito | Sigue funcionando | Funciona | PASA |
+| R05 | `libreria_soap` sobre `usuarios` | Sin acceso | Sin acceso | PASA |
+| R05b | `libreria_soap` borrando libros | Sin permiso | Sin permiso | PASA |
+
+**6 pruebas, 0 fallidas.**
+
+Esta suite existe porque las 18 anteriores pasaban mientras el módulo le impedía
+al monolito borrar un libro: todas ejercitan el módulo y ninguna ejercitaba al
+vecino. R01 y R02 fallaban con la definición original de la clave foránea.
+
 ## Pruebas de interoperabilidad (Tarea 4)
 
 `tests/cliente_zeep.py`, con un cliente generado desde el WSDL por `zeep`, que

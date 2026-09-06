@@ -122,8 +122,14 @@ la primera cosa que cambiaría en una versión real.
 
 **Qué pasa:** el módulo depende de que `libros.isbn`, `conceptos.termino` y
 `libros_conceptos` existan con esos nombres. Si el monolito los renombra, este
-servicio se cae sin que nadie haya tocado su código, y la clave foránea compuesta
-puede bloquear un `ALTER` del monolito.
+servicio se cae sin que nadie haya tocado su código.
+
+Este riesgo ya se materializó una vez, en el sentido contrario: la clave foránea
+del módulo, declarada `ON DELETE RESTRICT`, le impedía al monolito borrar un
+libro cuyo concepto hubiera sido clasificado. Se corrigió a `CASCADE` (ver el
+problema 6 de la documentación técnica). La lección es que el acoplamiento
+por base de datos no sólo va del módulo hacia el monolito: **también va del
+módulo hacia atrás, y ese es el sentido que nadie prueba.**
 
 **Gravedad:** media, y crece con el tiempo.
 

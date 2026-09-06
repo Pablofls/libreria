@@ -238,7 +238,8 @@ cada una:</p>
 <tr><td><code>UNIQUE (clasificador_id, concepto_id)</code></td><td>La regla que pide el enunciado: el mismo clasificador no registra dos veces el mismo concepto. Es la que produce el Fault 409</td></tr>
 <tr><td><code>FK (libro_id, concepto_id) → libros_conceptos</code></td><td>Que el concepto <strong>esté definido en ese libro</strong>, no sólo que ambos existan por separado</td></tr>
 <tr><td><code>CHECK modelo IN ('IaaS','PaaS','SaaS','FaaS')</code></td><td>Sólo los cuatro modelos, aunque alguien escriba directo en <code>psql</code></td></tr>
-<tr><td><code>ON DELETE RESTRICT</code> hacia libros y clasificadores</td><td>Un registro de auditoría no desaparece porque se editó el catálogo</td></tr>
+<tr><td><code>ON DELETE CASCADE</code> hacia <code>libros_conceptos</code></td><td>Si el bibliotecario borra el libro o le quita el concepto, la clasificación se va con él. Ver el problema 6</td></tr>
+<tr><td><code>ON DELETE RESTRICT</code> hacia <code>clasificadores</code></td><td>Tabla del módulo: la restricción no acopla a nadie de fuera</td></tr>
 <tr><td><code>ON DELETE SET NULL</code> hacia <code>clientes_servidos</code></td><td>La telemetría se puede depurar sin perder clasificaciones</td></tr>
 <tr><td><code>UNIQUE (tipo_cliente, identificador)</code></td><td>Un mismo binario en dos máquinas son dos clientes</td></tr>
 </tbody>
@@ -625,6 +626,32 @@ limpiar la base.</p>
 <span class="etiqueta tarea" style="background:#b35309">Pendiente en la VM</span></p>
 </section>
 
+<h3>Pruebas de regresión del monolito</h3>
+<p><code>tests/regresion_monolito.sql</code>. Todo ocurre dentro de una
+transacción que termina en <code>ROLLBACK</code>, así que es seguro correrlo
+contra la base real: crea datos, borra libros de verdad para comprobar que se
+puede, y al final no queda nada.</p>
+
+<div class="tabla-envoltorio">
+<table>
+<thead><tr><th>ID</th><th>Prueba</th><th>Resultado esperado</th><th>Obtenido</th><th>Estado</th></tr></thead>
+<tbody>
+<tr><td>R01</td><td>Quitarle a un libro un concepto clasificado</td><td>El monolito puede</td><td>Puede</td><td class="pasa">PASA</td></tr>
+<tr><td>R02</td><td>Borrar un libro con conceptos clasificados</td><td>El monolito puede</td><td>Puede</td><td class="pasa">PASA</td></tr>
+<tr><td>R03</td><td>Clasificar un concepto no definido en ese libro</td><td>La base lo impide</td><td>Lo impide</td><td class="pasa">PASA</td></tr>
+<tr><td>R04</td><td><code>sp_guardar_concepto_libro</code> del monolito</td><td>Sigue funcionando</td><td>Funciona</td><td class="pasa">PASA</td></tr>
+<tr><td>R05</td><td><code>libreria_soap</code> sobre <code>usuarios</code></td><td>Sin acceso</td><td>Sin acceso</td><td class="pasa">PASA</td></tr>
+<tr><td>R05b</td><td><code>libreria_soap</code> borrando libros</td><td>Sin permiso</td><td>Sin permiso</td><td class="pasa">PASA</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><strong>6 pruebas, 0 fallidas.</strong> Esta suite existe porque las 18
+anteriores pasaban mientras el módulo le impedía al monolito borrar un libro:
+todas ejercitan el módulo y ninguna ejercitaba al vecino. R01 y R02 fallaban con
+la definición original de la clave foránea.</p>
+</section>
+
 <!-- ================================================================= -->
 <section id="s12">
 <h2>12. Evidencias de PostgreSQL</h2>
@@ -740,13 +767,51 @@ falla ruidosamente y no en silencio.</p>
 <tr><td>3</td><td><code>zeep</code> fallaba: «el Body debe contener una operación»</td><td>Cliente de la Tarea 4</td><td>El <code>binding</code> declaraba <code>&lt;soap:header part="parameters"&gt;</code>, lo que vaciaba el <code>Body</code>. WS-Security no se declara así: se eliminó</td></tr>
 <tr><td>4</td><td><code>psycopg2-binary==2.9.9</code> no compila en Python 3.13</td><td><code>pip install</code></td><td>No publica rueda para 3.13. Fijado a 2.9.10</td></tr>
 <tr><td>5</td><td><code>zeep==4.2.1</code> no importa en Python 3.13</td><td><code>import zeep</code></td><td>Usa el módulo <code>cgi</code>, retirado en 3.13. Fijado a 4.3.x</td></tr>
+<tr><td>6</td><td><strong>El módulo rompía el monolito</strong>: no se podía borrar un libro cuyo concepto hubiera sido clasificado</td><td>Prueba de regresión de las operaciones del monolito, ya con el módulo instalado en la VM</td><td>La FK compuesta era <code>ON DELETE RESTRICT</code>. Se cambió a <code>CASCADE</code></td></tr>
 </tbody>
 </table>
 </div>
 
-<p>El problema 3 es el más instructivo: <strong>el cliente manual no lo
-detectaba</strong>, porque construye el sobre a mano y nunca lee el binding. Sólo
-apareció al consumir el contrato desde otro stack.</p>
+<p>El problema 3 es el más instructivo técnicamente: <strong>el cliente manual no
+lo detectaba</strong>, porque construye el sobre a mano y nunca lee el binding.
+Sólo apareció al consumir el contrato desde otro stack.</p>
+
+<h3>El problema 6, en detalle</h3>
+<p>Es el más importante de todos, porque incumplía un criterio de finalización.
+Con el módulo instalado, esto dejaba de funcionar en el monolito:</p>
+<pre><code>ERROR: update or delete on table "libros_conceptos" violates foreign key
+       constraint "fk_cc_libro_concepto" on table "clasificaciones_cloud"</code></pre>
+
+<div class="tabla-envoltorio">
+<table>
+<thead><tr><th>Operación del monolito</th><th>Antes del módulo</th><th>Con <code>RESTRICT</code></th><th>Con <code>CASCADE</code></th></tr></thead>
+<tbody>
+<tr><td>Borrar un libro cuyo concepto fue clasificado</td><td class="pasa">✔</td><td class="falla">✘ error de FK</td><td class="pasa">✔</td></tr>
+<tr><td>Quitarle a un libro un concepto clasificado</td><td class="pasa">✔</td><td class="falla">✘ error de FK</td><td class="pasa">✔</td></tr>
+<tr><td>Borrar libros o conceptos sin clasificar</td><td class="pasa">✔</td><td class="pasa">✔</td><td class="pasa">✔</td></tr>
+<tr><td>Editar libros, agregar conceptos</td><td class="pasa">✔</td><td class="pasa">✔</td><td class="pasa">✔</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>La restricción se había justificado como protección del registro de auditoría.
+El efecto real era otro: <strong>un componente nuevo bloqueándole al sistema
+existente una operación suya</strong>. El bibliotecario ya no podía borrar un
+libro porque alguien había clasificado uno de sus conceptos.</p>
+
+<p>La decisión se revirtió a propósito. El módulo SOAP no es el sistema de
+registro del catálogo; el monolito sí. Perder una clasificación cuando
+desaparece el libro al que se refiere es preferible a secuestrarle una operación
+a su dueño. Se conserva la mitad valiosa de la restricción: la clave foránea
+compuesta sigue obligando a que el concepto <strong>esté definido en ese
+libro</strong> al registrarlo, y eso se verificó después del cambio.</p>
+
+<div class="aviso riesgo">
+<p><strong>No lo detectó ninguna de las 18 pruebas</strong>, porque todas
+ejercitan el módulo y ninguna ejercita al vecino. Un módulo que se integra con un
+sistema existente necesita pruebas del sistema existente, no sólo de sí mismo.
+Esa es la lección más cara del ejercicio.</p>
+</div>
 </section>
 
 <!-- ================================================================= -->

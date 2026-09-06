@@ -230,7 +230,8 @@ Restricciones y por qué existen:
 | `uq_clasificacion_no_repetida (clasificador_id, concepto_id)` | La regla que pide el enunciado. Produce el Fault de conflicto 409 |
 | `fk_cc_libro_concepto (libro_id, concepto_id)` → `libros_conceptos` | Que el concepto **esté definido en ese libro**, no sólo que ambos existan |
 | `ck_clasificaciones_modelo` | Sólo los cuatro modelos, aunque alguien escriba directo en `psql` |
-| `ON DELETE RESTRICT` hacia libros y clasificadores | Un registro de auditoría no desaparece porque se editó el catálogo |
+| `ON DELETE CASCADE` hacia `libros_conceptos` | Si el bibliotecario borra el libro o le quita el concepto, la clasificación se va con él. Ver el problema 6 |
+| `ON DELETE RESTRICT` hacia `clasificadores` | Tabla del módulo: la restricción no acopla a nadie de fuera |
 | `ON DELETE SET NULL` hacia `clientes_servidos` | La telemetría se puede depurar sin perder clasificaciones |
 | `uq_clientes_servidos (tipo_cliente, identificador)` | Un binario en dos máquinas son dos clientes |
 
@@ -509,8 +510,32 @@ Formato: **Necesidad → Decisión → Justificación → Ventajas → Limitacio
 | 3 | `zeep` fallaba con "el Body debe contener una operación" | Cliente de la Tarea 4 | El `binding` declaraba `<soap:header part="parameters">` en la operación protegida, lo que movía el cuerpo al encabezado. WS-Security no se declara así: se eliminó |
 | 4 | `psycopg2-binary==2.9.9` no compila en Python 3.13 | `pip install` | No publica rueda para 3.13. Fijado a 2.9.10 |
 | 5 | `zeep==4.2.1` no importa en Python 3.13 | `import zeep` | Usa el módulo `cgi`, retirado en 3.13. Fijado a 4.3.x |
+| 6 | **El módulo rompía el monolito**: no se podía borrar un libro cuyo concepto hubiera sido clasificado | Prueba de regresión de las operaciones del monolito, ya con el módulo instalado en la VM | La FK compuesta era `ON DELETE RESTRICT`. Se cambió a `CASCADE`: ver abajo |
 
-El problema 3 es el más interesante: **el cliente manual no lo detectaba**
-porque construye el sobre a mano y nunca lee el binding. Sólo apareció al
-consumir el contrato con otro stack. Es el argumento práctico de por qué la
-Tarea 4 existe.
+El problema 3 es el más interesante técnicamente: **el cliente manual no lo
+detectaba** porque construye el sobre a mano y nunca lee el binding. Sólo
+apareció al consumir el contrato con otro stack. Es el argumento práctico de por
+qué la Tarea 4 existe.
+
+El problema 6 es el más importante de todos, porque incumplía un criterio de
+finalización. Instalado el módulo, esto dejaba de funcionar en el monolito:
+
+```
+ERROR: update or delete on table "libros_conceptos" violates foreign key
+       constraint "fk_cc_libro_concepto" on table "clasificaciones_cloud"
+```
+
+La restricción se había justificado como protección del registro de auditoría.
+El efecto real era otro: **un componente nuevo bloqueándole al sistema existente
+una operación suya**. El bibliotecario ya no podía borrar un libro porque alguien
+había clasificado uno de sus conceptos.
+
+La decisión se revirtió a propósito. El módulo SOAP no es el sistema de registro
+del catálogo; el monolito sí. Perder una clasificación cuando desaparece el libro
+al que se refiere es preferible a secuestrarle una operación a su dueño. Se
+conserva la mitad valiosa de la restricción: la clave foránea compuesta sigue
+obligando a que el concepto **esté definido en ese libro** al registrarlo.
+
+No lo detectó ninguna de las 18 pruebas, porque todas ejercitan el módulo y
+ninguna ejercita al vecino. Un módulo que se integra con un sistema existente
+necesita pruebas del sistema existente, no sólo de sí mismo.

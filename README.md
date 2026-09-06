@@ -270,9 +270,11 @@ clasificaciones_cloud
   id (PK)
   clasificador_id     → clasificadores(id)      ON DELETE RESTRICT
   (libro_id, concepto_id)
-                      → libros_conceptos(libro_id, concepto_id)  RESTRICT
+                      → libros_conceptos(libro_id, concepto_id)  CASCADE
                         ← FK COMPUESTA: obliga a que el concepto esté
-                          DEFINIDO en ese libro, no sólo a que ambos existan
+                          DEFINIDO en ese libro, no sólo a que ambos existan.
+                          CASCADE y no RESTRICT: con RESTRICT el módulo le
+                          impedía al monolito borrar un libro clasificado
   modelo              ← CHECK: IaaS | PaaS | SaaS | FaaS
   cliente_servido_id  → clientes_servidos(id)   ON DELETE SET NULL
   clasificado_en

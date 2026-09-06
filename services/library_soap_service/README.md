@@ -28,6 +28,7 @@ Aplicación de escritorio → Cliente SOAP → HTTP POST/XML → Módulo SOAP Fl
 | `sql/soap_module.sql` | Tablas propias, vistas, procedimiento y rol de mínimo privilegio |
 | `cliente/cliente_escritorio.py` | Aplicación de escritorio (Tkinter) como cliente SOAP |
 | `tests/pruebas_soap.py` | Plan de pruebas ejecutable: sobres armados a mano |
+| `tests/regresion_monolito.sql` | Que el módulo no le haya roto nada al monolito |
 | `tests/cliente_zeep.py` | Tarea 4: cliente generado desde el WSDL, otro stack |
 | `docs/` | Documentación técnica, auditoría del contrato, métricas y evidencias |
 
@@ -79,6 +80,16 @@ invocar el script las dejaría en el historial del shell. `ENDPOINT` sí se pued
 pasar así, para apuntar a otra máquina.
 
 18 pruebas: 7 positivas y 11 negativas. Escribe `tests/resultados.md`.
+
+Y las de regresión del monolito, que comprueban que el módulo no le rompió nada
+al sistema que ya funcionaba:
+
+```bash
+sudo -u postgres psql -d libreria_db -f tests/regresion_monolito.sql
+```
+
+Todo ocurre dentro de una transacción que termina en `ROLLBACK`: es seguro
+correrlas contra la base real.
 
 ### 4. Cliente de escritorio
 
