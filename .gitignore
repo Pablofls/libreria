@@ -38,3 +38,6 @@ docs/ejercicio03/docs/
 docs/ejercicio03/evidencias/
 docs/ejercicio03/descargas/
 docs/ejercicio03/img/
+
+# Salida de compilación de los clientes Java
+clients/*/out/
