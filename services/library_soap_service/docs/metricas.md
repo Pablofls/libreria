@@ -32,14 +32,21 @@ Contadas sin líneas en blanco ni comentarios.
 | `soap/security.py` | 154 | 99 |
 | `soap/service.py` | 243 | 166 |
 | **Servidor completo** | **1089** | **716** |
-| Cliente de escritorio (Tkinter) | 323 | 251 |
-| Cliente generado desde WSDL (zeep) | 120 | 85 |
+| Cliente Tkinter autónomo (el primero) | 347 | 251 |
+| Capa SOAP del cliente Python del EG1 | 176 | 140 |
+| Capa SOAP del cliente Java del EG1 (3 clases) | 344 | 260 |
+| Cliente generado desde WSDL (zeep) | 132 | 85 |
 | WSDL | 404 | — |
 | SQL del módulo | 375 | — |
 
-El dato que importa para la comparación: **el cliente manual necesita 251 líneas
-y el generado desde el contrato, 85** — y de esas 85, la mayoría son mensajes en
-pantalla. El contrato se paga solo del lado del cliente.
+El dato que importa para la comparación: **el cliente manual en Java necesita 260
+líneas y el generado desde el contrato, 85** — y de esas 85, la mayoría son
+mensajes en pantalla. El contrato se paga solo del lado del cliente.
+
+Las dos capas SOAP escritas a mano —Python y Java— hacen exactamente lo mismo
+contra el mismo contrato, y difieren en 120 líneas. Esa diferencia es casi toda
+verbosidad del lenguaje, no complejidad del protocolo: Java necesita tres clases
+y DOM explícito donde Python resuelve con `xml.etree` y diccionarios.
 
 Del servidor, unas 143 líneas de código (`envelope.py` + `faults.py`) existen
 sólo para armar y leer sobres: trabajo que un stack SOAP haría solo y que REST
