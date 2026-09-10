@@ -224,6 +224,76 @@ def _hijo(padre, etiqueta, valor=None, atributos=None):
 
 
 # --- Estructura neutra -------------------------------------------------------
+def _autores_a_dict(autores):
+    registros = []
+    for autor in autores:
+        registro = {'name': autor['nombre'], 'order': autor['orden']}
+        if autor.get('nacionalidad'):
+            registro['nationality'] = autor['nacionalidad']
+        registros.append(registro)
+    return registros
+
+
+def _imagenes_a_dict(imagenes):
+    registros = []
+    for imagen in imagenes:
+        registro = {
+            'cover': bool(imagen['es_portada']),
+            'type': imagen['tipo_mime'],
+            # Solo el nombre de archivo: la ruta base de uploads/ es
+            # configuracion de la aplicacion, no un dato publico.
+            'file': imagen['nombre_archivo'],
+        }
+        if imagen.get('texto_alternativo'):
+            registro['alt'] = imagen['texto_alternativo']
+        registros.append(registro)
+    return registros
+
+
+def glosario_a_dict(conceptos):
+    """Conceptos -> representacion neutra, con los libros que los definen.
+
+    Es el pivote inverso del catalogo: /books va del libro a sus conceptos y
+    esto va del concepto a sus libros. La definicion, el capitulo y la pagina
+    cuelgan del par (concepto, libro) y NO del concepto, porque asi esta el
+    esquema: el mismo termino se define distinto en cada libro. Un diccionario
+    global de terminos seria una dependencia multivaluada que la 4FN separo a
+    proposito.
+    """
+    entradas = []
+    for concepto in conceptos:
+        libros = []
+        for libro in concepto['libros']:
+            registro = {
+                'isbn': libro['isbn'],
+                'title': libro['titulo'],
+                'authors': _autores_a_dict(libro.get('autores', [])),
+                'year': libro.get('anio_publicacion'),
+            }
+            if libro.get('capitulo'):
+                registro['chapter'] = libro['capitulo']
+            if libro.get('pagina') is not None:
+                registro['page'] = libro['pagina']
+            registro['description'] = libro['definicion']
+            libros.append(registro)
+        entradas.append({'term': concepto['termino'],
+                         'count': len(libros),
+                         'books': libros})
+    return {'count': len(entradas), 'concepts': entradas}
+
+
+def resumen_a_dict(libros):
+    """Datos minimos del libro mas sus imagenes. Mismas claves que el catalogo,
+    solo que menos: un cliente que ya sabe leer /books lee esto sin cambiar."""
+    return {
+        'count': len(libros),
+        'books': [{'isbn': libro['isbn'],
+                   'title': libro['titulo'],
+                   'images': _imagenes_a_dict(libro.get('imagenes', []))}
+                  for libro in libros],
+    }
+
+
 def libro_a_dict(libro):
     """Fila de la base -> representacion neutra del libro.
 
@@ -248,23 +318,8 @@ def libro_a_dict(libro):
         'concepts': [],
     }
 
-    for autor in libro.get('autores', []):
-        registro = {'name': autor['nombre'], 'order': autor['orden']}
-        if autor.get('nacionalidad'):
-            registro['nationality'] = autor['nacionalidad']
-        datos['authors'].append(registro)
-
-    for imagen in libro.get('imagenes', []):
-        registro = {
-            'cover': bool(imagen['es_portada']),
-            'type': imagen['tipo_mime'],
-            # Solo el nombre de archivo: la ruta base de uploads/ es
-            # configuracion de la aplicacion, no un dato publico.
-            'file': imagen['nombre_archivo'],
-        }
-        if imagen.get('texto_alternativo'):
-            registro['alt'] = imagen['texto_alternativo']
-        datos['images'].append(registro)
+    datos['authors'] = _autores_a_dict(libro.get('autores', []))
+    datos['images'] = _imagenes_a_dict(libro.get('imagenes', []))
 
     for concepto in libro.get('conceptos', []):
         registro = {'term': concepto['termino']}
@@ -283,16 +338,34 @@ def libro_a_dict(libro):
 # --- Renderizadores XML ------------------------------------------------------
 # Parten de la estructura neutra, nunca de la fila de la base. Aqui vive lo
 # unico que el JSON no tiene: que un dato sea atributo o elemento.
+def _imagenes_a_xml(padre, imagenes):
+    nodo = ET.SubElement(padre, 'images')
+    for imagen in imagenes:
+        nodo_img = ET.SubElement(nodo, 'image', {
+            'cover': 'true' if imagen['cover'] else 'false',
+            'type': imagen['type'],
+        })
+        _hijo(nodo_img, 'file', imagen['file'])
+        if 'alt' in imagen:
+            _hijo(nodo_img, 'alt', imagen['alt'])
+    return nodo
+
+
+def _autores_a_xml(padre, autores):
+    nodo = ET.SubElement(padre, 'authors')
+    for autor in autores:
+        atributos = {'order': str(autor['order'])}
+        if 'nationality' in autor:
+            atributos['nationality'] = autor['nationality']
+        _hijo(nodo, 'author', autor['name'], atributos)
+    return nodo
+
+
 def libro_a_xml(padre, datos):
     nodo = ET.SubElement(padre, 'book', {'isbn': datos['isbn']})
     _hijo(nodo, 'title', datos['title'])
 
-    autores = ET.SubElement(nodo, 'authors')
-    for autor in datos['authors']:
-        atributos = {'order': str(autor['order'])}
-        if 'nationality' in autor:
-            atributos['nationality'] = autor['nationality']
-        _hijo(autores, 'author', autor['name'], atributos)
+    _autores_a_xml(nodo, datos['authors'])
 
     _hijo(nodo, 'year', datos['year'])
 
@@ -304,15 +377,7 @@ def libro_a_xml(padre, datos):
     _hijo(nodo, 'stock', datos['stock'])
     _hijo(nodo, 'format', datos['format'])
 
-    imagenes = ET.SubElement(nodo, 'images')
-    for imagen in datos['images']:
-        nodo_img = ET.SubElement(imagenes, 'image', {
-            'cover': 'true' if imagen['cover'] else 'false',
-            'type': imagen['type'],
-        })
-        _hijo(nodo_img, 'file', imagen['file'])
-        if 'alt' in imagen:
-            _hijo(nodo_img, 'alt', imagen['alt'])
+    _imagenes_a_xml(nodo, datos['images'])
 
     conceptos = ET.SubElement(nodo, 'concepts')
     for concepto in datos['concepts']:
@@ -332,6 +397,44 @@ def catalogo_a_xml(datos):
     contenedor = ET.SubElement(raiz, 'books', {'count': str(datos['count'])})
     for libro in datos['books']:
         libro_a_xml(contenedor, libro)
+    return raiz
+
+
+def glosario_a_xml(datos):
+    # Raiz propia (<glossary>) y no <concepts>: ese nombre ya lo usa el bloque
+    # de conceptos dentro de cada libro, y library.css estiliza por nombre de
+    # elemento. Reutilizarlo le pondria a este documento el rotulo "Conceptos
+    # definidos en este libro", que aqui seria falso. <concept> si se reutiliza:
+    # significa lo mismo y hereda su estilo.
+    raiz = ET.Element('glossary', {'count': str(datos['count'])})
+    for entrada in datos['concepts']:
+        nodo = ET.SubElement(raiz, 'concept', {'term': entrada['term']})
+        contenedor = ET.SubElement(nodo, 'books',
+                                   {'count': str(entrada['count'])})
+        for libro in entrada['books']:
+            nodo_libro = ET.SubElement(contenedor, 'book',
+                                       {'isbn': libro['isbn']})
+            _hijo(nodo_libro, 'title', libro['title'])
+            _autores_a_xml(nodo_libro, libro['authors'])
+            _hijo(nodo_libro, 'year', libro['year'])
+            atributos = {}
+            if 'chapter' in libro:
+                atributos['chapter'] = libro['chapter']
+            if 'page' in libro:
+                atributos['page'] = str(libro['page'])
+            _hijo(nodo_libro, 'description', libro['description'], atributos)
+    return raiz
+
+
+def resumen_a_xml(datos):
+    # Mismos nombres de elemento que el catalogo, con menos hijos: library.css
+    # lo dibuja sin una sola regla nueva y el cliente no aprende otro vocabulario.
+    raiz = ET.Element('library')
+    contenedor = ET.SubElement(raiz, 'books', {'count': str(datos['count'])})
+    for libro in datos['books']:
+        nodo = ET.SubElement(contenedor, 'book', {'isbn': libro['isbn']})
+        _hijo(nodo, 'title', libro['title'])
+        _imagenes_a_xml(nodo, libro['images'])
     return raiz
 
 
@@ -371,6 +474,8 @@ def servicio_a_xml(datos):
 
 RENDERIZADORES_XML = {
     'library': catalogo_a_xml,
+    'glossary': glosario_a_xml,
+    'summary': resumen_a_xml,
     'error':   error_a_xml,
     'result':  resultado_a_xml,
     'health':  salud_a_xml,
@@ -383,6 +488,14 @@ def responder_catalogo(libros, estado=200):
     datos = {'count': len(libros),
              'books': [libro_a_dict(libro) for libro in libros]}
     return responder('library', datos, estado)
+
+
+def responder_glosario(conceptos, estado=200):
+    return responder('glossary', glosario_a_dict(conceptos), estado)
+
+
+def responder_resumen(libros, estado=200):
+    return responder('summary', resumen_a_dict(libros), estado)
 
 
 def error_respuesta(codigo, mensaje, detalles=None):
@@ -437,6 +550,26 @@ SQL_CONCEPTOS = """
      ORDER BY lc.libro_id, co.id
 """
 
+# Pivote inverso: del concepto a los libros que lo definen. La definicion sale
+# de libros_conceptos, no de conceptos, porque ahi es donde vive: el mismo
+# termino se define distinto en cada libro (4FN del esquema).
+SQL_GLOSARIO = """
+    SELECT co.id AS concepto_id, co.termino,
+           l.id  AS libro_id, l.isbn, l.titulo, l.anio_publicacion,
+           lc.definicion, lc.capitulo, lc.pagina
+      FROM conceptos co
+      JOIN libros_conceptos lc ON lc.concepto_id = co.id
+      JOIN libros l            ON l.id = lc.libro_id
+"""
+
+# Lectura minima: lo que identifica al libro y nada mas. Va aparte de SQL_LIBROS
+# a proposito, sin el JOIN a formatos, que aqui no se usa.
+SQL_RESUMEN = """
+    SELECT l.id, l.isbn, l.titulo
+      FROM libros l
+     ORDER BY l.titulo, l.id
+"""
+
 # Columnas por las que se puede ordenar. Es una lista blanca: el valor que
 # manda el cliente nunca se interpola en el SQL, solo elige una entrada de aqui.
 ORDENES = {
@@ -488,6 +621,86 @@ def leer_libros(cur, condicion='', parametros=(), orden='l.titulo',
     cur.execute(SQL_CONCEPTOS, (ids,))
     for fila in cur.fetchall():
         indice[fila['libro_id']]['conceptos'].append(dict(fila))
+
+    return libros
+
+
+def leer_glosario(cur, termino=None):
+    """Todos los conceptos del catalogo con los libros donde estan definidos.
+
+    Cuales son "de Cloud Computing" no lo decide el codigo: no hay columna que
+    lo diga y una lista fija de terminos aqui dentro seria un dato disfrazado de
+    codigo, que mentiria en cuanto se sembrara un termino nuevo. Lo decide el
+    catalogo, y el filtro opcional `termino` deja acotar la consulta.
+    """
+    sql = SQL_GLOSARIO
+    parametros = []
+    if termino:
+        sql += ' WHERE co.termino ILIKE %s'
+        parametros.append('%{}%'.format(termino))
+    sql += ' ORDER BY co.termino, l.titulo, l.id'
+
+    cur.execute(sql, parametros)
+    filas = [dict(fila) for fila in cur.fetchall()]
+    if not filas:
+        return []
+
+    conceptos = {}
+    orden = []
+    libros = {}
+    for fila in filas:
+        if fila['concepto_id'] not in conceptos:
+            conceptos[fila['concepto_id']] = {'termino': fila['termino'],
+                                              'libros': []}
+            orden.append(fila['concepto_id'])
+        libro = {
+            'isbn': fila['isbn'],
+            'titulo': fila['titulo'],
+            'anio_publicacion': fila['anio_publicacion'],
+            'definicion': fila['definicion'],
+            'capitulo': fila['capitulo'],
+            'pagina': fila['pagina'],
+            'autores': [],
+        }
+        conceptos[fila['concepto_id']]['libros'].append(libro)
+        libros.setdefault(fila['libro_id'], []).append(libro)
+
+    # Una sola consulta de autores para todos los libros implicados, no una por
+    # concepto: el mismo libro aparece bajo varios terminos.
+    cur.execute(SQL_AUTORES, (list(libros.keys()),))
+    for fila in cur.fetchall():
+        for libro in libros[fila['libro_id']]:
+            libro['autores'].append(dict(fila))
+
+    return [conceptos[identificador] for identificador in orden]
+
+
+def leer_resumen(cur, limite=None, desplazamiento=0):
+    """Datos minimos de los libros mas sus imagenes.
+
+    No reutiliza leer_libros porque ese lanza cuatro consultas de relaciones
+    N:M —autores, generos, imagenes y conceptos— y aqui sobran tres. Reusarlo
+    para despues descartar campos pagaria el costo completo y no ahorraria nada,
+    que es justo lo contrario de lo que este endpoint existe para hacer.
+    """
+    sql = SQL_RESUMEN
+    valores = []
+    if limite is not None:
+        sql += ' LIMIT %s OFFSET %s'
+        valores += [limite, desplazamiento]
+
+    cur.execute(sql, valores)
+    libros = [dict(fila) for fila in cur.fetchall()]
+    if not libros:
+        return []
+
+    indice = {libro['id']: libro for libro in libros}
+    for libro in libros:
+        libro['imagenes'] = []
+
+    cur.execute(SQL_IMAGENES, (list(indice.keys()),))
+    for fila in cur.fetchall():
+        indice[fila['libro_id']]['imagenes'].append(dict(fila))
 
     return libros
 
@@ -710,6 +923,30 @@ FILTROS = {
     'disponible': ('(l.stock > 0) = %s',
                    lambda v: str(v).lower() in ('1', 'true', 'si', 'yes')),
 }
+
+
+# '/books/summary' se declara antes que '/books/<isbn>' por legibilidad; el
+# orden no decide nada, Werkzeug prefiere la regla estatica sobre la variable.
+@app.route('/books/summary', methods=['GET'])
+@app.route('/api/books/summary', methods=['GET'])
+def resumen_libros():
+    limite = request.args.get('limite', type=int)
+    desplazamiento = request.args.get('desplazamiento', default=0, type=int)
+    if limite is not None:
+        limite = max(1, min(limite, 500))
+
+    with cursor_bd() as cur:
+        libros = leer_resumen(cur, limite, max(0, desplazamiento))
+    return responder_resumen(libros)
+
+
+@app.route('/concepts', methods=['GET'])
+@app.route('/api/concepts', methods=['GET'])
+def listar_conceptos():
+    termino = (request.args.get('termino') or '').strip()
+    with cursor_bd() as cur:
+        conceptos = leer_glosario(cur, termino or None)
+    return responder_glosario(conceptos)
 
 
 @app.route('/books/search', methods=['GET'])
@@ -978,6 +1215,12 @@ RESPUESTA_CATALOGO = {
     'content': {'application/xml': {'schema': {'type': 'string'}},
                 'application/json': {'schema': {'type': 'object'}}},
 }
+RESPUESTA_GLOSARIO = {
+    'description': ('Conceptos con los libros que los definen. XML por '
+                    'defecto; JSON con ?format=json.'),
+    'content': {'application/xml': {'schema': {'type': 'string'}},
+                'application/json': {'schema': {'type': 'object'}}},
+}
 RESPUESTA_ERROR = {
     'description': ('Error explicado. XML: <error code="..."><message>... '
                     'JSON: {"code": ..., "message": ..., "details": [...]}.'),
@@ -990,6 +1233,8 @@ RESPUESTA_ERROR = {
 ALIAS = {
     '/api/books':                    '/books',
     '/api/books/search':             '/books/search',
+    '/api/books/summary':            '/books/summary',
+    '/api/concepts':                 '/concepts',
     '/api/book/{isbn}':              '/books/{isbn}',
     '/api/book/author/{author_id}':  '/books/author/{author_id}',
     '/api/book/insert':              '/books/insert',
@@ -1046,7 +1291,7 @@ ESPECIFICACION = {
     'openapi': '3.0.3',
     'info': {
         'title': 'Catalogo de la Libreria Online',
-        'version': '1.0.0',
+        'version': '1.2.0',
         'description': (
             'Microservicio Flask que expone el catalogo de libros en XML.\n\n'
             'Lee de la misma base PostgreSQL que el monolito (db/01_schema.sql) '
@@ -1106,6 +1351,33 @@ ESPECIFICACION = {
                 _param('dir', 'asc o desc'),
             ],
             'responses': {'200': RESPUESTA_CATALOGO, '400': RESPUESTA_ERROR},
+        }},
+        '/api/books/summary': {'get': {
+            'tags': ['Lectura'],
+            'summary': 'Datos minimos de los libros con sus imagenes',
+            'description': 'Solo ISBN, titulo e imagenes. Lectura propia, mas '
+                           'barata que la del catalogo completo: no consulta '
+                           'autores, generos ni conceptos.',
+            'parameters': [
+                _param('limite', 'Maximo de libros a devolver (1-500)', 'integer'),
+                _param('desplazamiento', 'Libros a saltar', 'integer'),
+            ],
+            'responses': {'200': RESPUESTA_CATALOGO, '503': RESPUESTA_ERROR},
+        }},
+        '/api/concepts': {'get': {
+            'tags': ['Lectura'],
+            'summary': 'Conceptos del catalogo y los libros que los definen',
+            'description': 'Pivote inverso de /books: de cada concepto —IaaS, '
+                           'PaaS, SaaS, FaaS y los demas que haya en el '
+                           'catalogo— devuelve los libros donde esta definido, '
+                           'con su definicion, capitulo y pagina. La definicion '
+                           'pertenece al par (libro, concepto): el mismo termino '
+                           'se define distinto en cada libro.',
+            'parameters': [
+                _param('termino', 'Fragmento del termino; sin el, todos los '
+                                  'conceptos del catalogo'),
+            ],
+            'responses': {'200': RESPUESTA_GLOSARIO, '503': RESPUESTA_ERROR},
         }},
         '/api/book/{isbn}': {'get': {
             'tags': ['Lectura'],
@@ -1241,6 +1513,8 @@ def indice():
         ('/docs', 'Documentacion Swagger'),
         ('/books', 'Todos los libros'),
         ('/books/search', 'Busqueda por atributos'),
+        ('/books/summary', 'Datos minimos de los libros con sus imagenes'),
+        ('/concepts', 'Conceptos del catalogo y los libros que los definen'),
         ('/books/{isbn}', 'Un libro'),
         ('/books/author/{author_id}', 'Libros de un autor'),
         ('/books/insert', 'Alta (POST)'),
@@ -1252,7 +1526,7 @@ def indice():
                for ruta, descripcion in puntos if ruta in ALIAS_INVERSO]
     return responder('service', {
         'name': 'catalogo-libreria',
-        'version': '1.1.0',
+        'version': '1.2.0',
         'endpoints': [{'path': ruta, 'description': descripcion}
                       for ruta, descripcion in puntos],
     })

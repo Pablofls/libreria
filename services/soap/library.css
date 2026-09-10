@@ -206,3 +206,73 @@ description {
     font-size: 0.9em;
     color: #333;
 }
+
+/* =============================================================================
+   Glosario: /concepts, el pivote inverso del catalogo.
+
+   Raiz propia <glossary> y no <concepts>: ese nombre ya lo ocupa el bloque de
+   conceptos dentro de cada libro, y esta hoja selecciona por nombre de
+   elemento, sin clases. Reutilizarlo le pondria a este documento el rotulo
+   "Conceptos definidos en este libro", que aqui es falso: son los libros los
+   que cuelgan del concepto.
+
+   <concept>, <book>, <title>, <authors>, <year> y <description> si se
+   reutilizan, porque significan lo mismo y ya tienen estilo mas arriba.
+   ========================================================================== */
+glossary {
+    display: block;
+    width: 100%;
+    padding: 20px;
+    background-color: #f0f0f0;
+    font-family: Verdana, Geneva, Arial, Helvetica, sans-serif;
+}
+
+glossary::before {
+    content: "Conceptos del catalogo y libros donde se definen";
+    display: block;
+    font-size: 1.1em;
+    font-weight: bold;
+    margin-bottom: 15px;
+    color: #222;
+}
+
+/* El termino ya lo dibuja concept::before con attr(term). Aqui solo cambia la
+   escala: en el glosario el concepto es el titulo de la seccion, no una nota
+   al margen dentro de un libro. */
+glossary > concept {
+    background-color: #e8e8e8;
+    border: 1px solid #999;
+    border-left: 4px solid #666;
+    padding: 10px;
+    margin-bottom: 15px;
+}
+
+glossary > concept::before {
+    font-size: 1.15em;
+    margin-bottom: 8px;
+}
+
+/* Cuantos libros definen el termino. Es un atributo, asi que sin attr() no se
+   veria en ninguna parte. */
+glossary books::before {
+    content: "Definido en " attr(count) " libro(s)";
+    display: block;
+    font-size: 0.85em;
+    color: #555;
+    margin-bottom: 8px;
+}
+
+/* Capitulo y pagina son atributos de <description> porque pertenecen al par
+   (libro, concepto), igual que la definicion. Los selectores por atributo
+   evitan escribir el rotulo cuando el dato no existe. */
+description[chapter]::before {
+    content: "Capitulo " attr(chapter) " · ";
+    font-weight: bold;
+    color: #555;
+}
+
+description[page]::after {
+    content: " (pag. " attr(page) ")";
+    color: #777;
+    font-size: 0.9em;
+}
