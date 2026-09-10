@@ -6,17 +6,30 @@
 #     pip install -r requirements.txt
 #     cp .env.example .env          # y completa las credenciales EN LA VM
 #     python app.py                 # -> http://127.0.0.1:5000/docs
+#                                   #    (SOAP_PORT=5001 en la VM)
 #
 # Una sola aplicacion Flask, SIN Blueprints, como pide el enunciado. Lee de la
 # misma base PostgreSQL que el monolito Node (ver db/01_schema.sql) y responde
 # XML con la misma estructura que library.xml, de modo que library.css sirve
 # para las dos: el catalogo se ve en el navegador sin HTML intermedio.
 #
+# Todos los endpoints responden en XML o en JSON, indistintamente, segun el
+# parametro ?format=:
+#
+#     /books                        -> XML  (sin format, siempre XML)
+#     /books?format=json            -> JSON
+#     /books/9780451524935?format=json
+#
+# Las rutas historicas con prefijo /api siguen atendiendo igual: /books es un
+# alias de /api/books, no un reemplazo.
+#
 # Ninguna credencial vive en este archivo. Todas se leen del .env, que no se
 # versiona (.gitignore). El repositorio es publico.
 # =============================================================================
 
+import copy
 import hmac
+import json
 import logging
 import os
 import re
@@ -77,7 +90,10 @@ app = Flask(__name__)
 
 CORS(
     app,
-    resources={r'/api/*': {'origins': ORIGENES}},
+    resources={r'/api/*': {'origins': ORIGENES},
+               r'/books': {'origins': ORIGENES},
+               r'/books/*': {'origins': ORIGENES},
+               r'/health': {'origins': ORIGENES}},
     methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allow_headers=['Content-Type', 'X-API-Key'],
     max_age=86400,
@@ -117,12 +133,72 @@ def cursor_bd(escribe=False):
 
 
 # -----------------------------------------------------------------------------
-# Respuestas XML. La estructura es la de library.xml:
+# Respuestas. La estructura del catalogo es la de library.xml:
 #   <library><books><book isbn="..."> title, authors, year, genres, price,
 #                                     stock, format, images, concepts </book>
+#
+# Cada endpoint contesta en XML o en JSON, indistintamente, segun el parametro
+# ?format=. Para que los dos formatos no se separen al primer cambio de esquema,
+# ninguna vista construye XML: arma una estructura neutra de dicts y listas
+# —la unica fuente de verdad— y `responder` elige el renderizador. Los nombres
+# de esa estructura son los mismos que las etiquetas XML, asi que el JSON se lee
+# igual que el XML y un cliente puede cambiar de formato sin cambiar de mapeo.
 # -----------------------------------------------------------------------------
 CABECERA = ('<?xml version="1.0" encoding="UTF-8"?>\n'
             '<?xml-stylesheet type="text/css" href="{hoja}"?>\n')
+
+FORMATOS = ('xml', 'json')
+
+
+def formato_pedido():
+    """Formato de salida. El parametro ?format= manda; sin el, XML.
+
+    El respaldo por `Accept` solo entra cuando el cliente pide JSON de forma
+    explicita: un `Accept: */*` —lo que envia curl— o el de un navegador siguen
+    recibiendo XML, para no cambiarle la respuesta a ningun cliente existente.
+    """
+    crudo = (request.args.get('format') or '').strip().lower()
+    if crudo in FORMATOS:
+        return crudo
+    if crudo:
+        # Valor desconocido: _rechazar_formato_desconocido ya devolvio un 400
+        # antes de llegar a la vista. Si aun asi se llega aqui, gana el default.
+        return 'xml'
+    if request.accept_mimetypes.best_match(
+            ('application/xml', 'application/json')) == 'application/json':
+        return 'json'
+    return 'xml'
+
+
+@app.before_request
+def _rechazar_formato_desconocido():
+    """Un ?format= que no existe es un error del cliente, no un XML silencioso.
+
+    Va en before_request para cubrir tambien las rutas inexistentes: el 404 se
+    levanta al despachar, es decir despues de este gancho.
+    """
+    crudo = request.args.get('format')
+    if crudo is None or crudo.strip().lower() in FORMATOS:
+        return None
+    return error_respuesta(
+        400, 'El parametro "format" no admite ese valor.',
+        ['Valores validos: ' + ', '.join(FORMATOS) + '.',
+         'Sin el parametro, la respuesta es XML.'])
+
+
+def _json_serializable(valor):
+    """`Decimal` no es serializable por json: el precio viaja como numero."""
+    if isinstance(valor, Decimal):
+        return round(float(valor), 2)
+    raise TypeError('No se puede serializar un {}.'.format(type(valor).__name__))
+
+
+def responder_json(datos, estado=200):
+    # ensure_ascii=False para que los acentos y la ñ se lean igual que en el XML.
+    cuerpo = json.dumps(datos, ensure_ascii=False, indent=2,
+                        default=_json_serializable)
+    return Response(cuerpo + '\n', status=estado,
+                    content_type='application/json; charset=utf-8')
 
 
 def responder_xml(raiz, estado=200):
@@ -133,13 +209,11 @@ def responder_xml(raiz, estado=200):
                     content_type='application/xml; charset=utf-8')
 
 
-def error_xml(codigo, mensaje, detalles=None):
-    """Error legible. Nunca expone SQL, nombres de tabla ni trazas."""
-    raiz = ET.Element('error', {'code': str(codigo)})
-    ET.SubElement(raiz, 'message').text = mensaje
-    for detalle in (detalles or []):
-        ET.SubElement(raiz, 'detail').text = detalle
-    return responder_xml(raiz, codigo)
+def responder(tipo, datos, estado=200):
+    """Unica salida del servicio: misma estructura, dos serializaciones."""
+    if formato_pedido() == 'json':
+        return responder_json(datos, estado)
+    return responder_xml(RENDERIZADORES_XML[tipo](datos), estado)
 
 
 def _hijo(padre, etiqueta, valor=None, atributos=None):
@@ -149,60 +223,174 @@ def _hijo(padre, etiqueta, valor=None, atributos=None):
     return elemento
 
 
-def libro_a_xml(padre, libro):
-    nodo = ET.SubElement(padre, 'book', {'isbn': libro['isbn']})
-    _hijo(nodo, 'title', libro['titulo'])
+# --- Estructura neutra -------------------------------------------------------
+def libro_a_dict(libro):
+    """Fila de la base -> representacion neutra del libro.
 
-    autores = ET.SubElement(nodo, 'authors')
+    Las claves son las etiquetas del XML, no las columnas en espanol: el
+    contrato publico ya estaba en ingles y no cambia por añadir JSON.
+
+    Regla unica para lo opcional: lo que el XML omite cuando no hay dato
+    (`nationality`, `alt`, `chapter`, `page`) tampoco aparece en el JSON.
+    `year` es la excepcion deliberada —el catalogo lo declara para todo libro—,
+    asi que va siempre: vacio en XML, `null` en JSON.
+    """
+    datos = {
+        'isbn': libro['isbn'],
+        'title': libro['titulo'],
+        'authors': [],
+        'year': libro.get('anio_publicacion'),
+        'genres': list(libro.get('generos', [])),
+        'price': libro['precio'],
+        'stock': libro['stock'],
+        'format': libro['formato'],
+        'images': [],
+        'concepts': [],
+    }
+
     for autor in libro.get('autores', []):
-        atributos = {'order': str(autor['orden'])}
+        registro = {'name': autor['nombre'], 'order': autor['orden']}
         if autor.get('nacionalidad'):
-            atributos['nationality'] = autor['nacionalidad']
-        _hijo(autores, 'author', autor['nombre'], atributos)
+            registro['nationality'] = autor['nacionalidad']
+        datos['authors'].append(registro)
 
-    _hijo(nodo, 'year', libro.get('anio_publicacion'))
-
-    generos = ET.SubElement(nodo, 'genres')
-    for genero in libro.get('generos', []):
-        _hijo(generos, 'genre', genero)
-
-    _hijo(nodo, 'price', '{:.2f}'.format(libro['precio']))
-    _hijo(nodo, 'stock', libro['stock'])
-    _hijo(nodo, 'format', libro['formato'])
-
-    imagenes = ET.SubElement(nodo, 'images')
     for imagen in libro.get('imagenes', []):
-        nodo_img = ET.SubElement(imagenes, 'image', {
-            'cover': 'true' if imagen['es_portada'] else 'false',
+        registro = {
+            'cover': bool(imagen['es_portada']),
             'type': imagen['tipo_mime'],
-        })
-        # Solo el nombre de archivo: la ruta base de uploads/ es configuracion
-        # de la aplicacion, no un dato publico.
-        _hijo(nodo_img, 'file', imagen['nombre_archivo'])
+            # Solo el nombre de archivo: la ruta base de uploads/ es
+            # configuracion de la aplicacion, no un dato publico.
+            'file': imagen['nombre_archivo'],
+        }
         if imagen.get('texto_alternativo'):
-            _hijo(nodo_img, 'alt', imagen['texto_alternativo'])
+            registro['alt'] = imagen['texto_alternativo']
+        datos['images'].append(registro)
 
-    conceptos = ET.SubElement(nodo, 'concepts')
     for concepto in libro.get('conceptos', []):
-        atributos = {'term': concepto['termino']}
+        registro = {'term': concepto['termino']}
         if concepto.get('capitulo'):
-            atributos['chapter'] = concepto['capitulo']
+            registro['chapter'] = concepto['capitulo']
         if concepto.get('pagina') is not None:
-            atributos['page'] = str(concepto['pagina'])
-        nodo_con = ET.SubElement(conceptos, 'concept', atributos)
+            registro['page'] = concepto['pagina']
         # La definicion pertenece al par (libro, concepto): el mismo termino se
         # define distinto en cada libro. Por eso no vive en el catalogo.
-        _hijo(nodo_con, 'description', concepto['definicion'])
+        registro['description'] = concepto['definicion']
+        datos['concepts'].append(registro)
+
+    return datos
+
+
+# --- Renderizadores XML ------------------------------------------------------
+# Parten de la estructura neutra, nunca de la fila de la base. Aqui vive lo
+# unico que el JSON no tiene: que un dato sea atributo o elemento.
+def libro_a_xml(padre, datos):
+    nodo = ET.SubElement(padre, 'book', {'isbn': datos['isbn']})
+    _hijo(nodo, 'title', datos['title'])
+
+    autores = ET.SubElement(nodo, 'authors')
+    for autor in datos['authors']:
+        atributos = {'order': str(autor['order'])}
+        if 'nationality' in autor:
+            atributos['nationality'] = autor['nationality']
+        _hijo(autores, 'author', autor['name'], atributos)
+
+    _hijo(nodo, 'year', datos['year'])
+
+    generos = ET.SubElement(nodo, 'genres')
+    for genero in datos['genres']:
+        _hijo(generos, 'genre', genero)
+
+    _hijo(nodo, 'price', '{:.2f}'.format(datos['price']))
+    _hijo(nodo, 'stock', datos['stock'])
+    _hijo(nodo, 'format', datos['format'])
+
+    imagenes = ET.SubElement(nodo, 'images')
+    for imagen in datos['images']:
+        nodo_img = ET.SubElement(imagenes, 'image', {
+            'cover': 'true' if imagen['cover'] else 'false',
+            'type': imagen['type'],
+        })
+        _hijo(nodo_img, 'file', imagen['file'])
+        if 'alt' in imagen:
+            _hijo(nodo_img, 'alt', imagen['alt'])
+
+    conceptos = ET.SubElement(nodo, 'concepts')
+    for concepto in datos['concepts']:
+        atributos = {'term': concepto['term']}
+        if 'chapter' in concepto:
+            atributos['chapter'] = concepto['chapter']
+        if 'page' in concepto:
+            atributos['page'] = str(concepto['page'])
+        nodo_con = ET.SubElement(conceptos, 'concept', atributos)
+        _hijo(nodo_con, 'description', concepto['description'])
 
     return nodo
 
 
-def catalogo_a_xml(libros, estado=200):
+def catalogo_a_xml(datos):
     raiz = ET.Element('library')
-    contenedor = ET.SubElement(raiz, 'books', {'count': str(len(libros))})
-    for libro in libros:
+    contenedor = ET.SubElement(raiz, 'books', {'count': str(datos['count'])})
+    for libro in datos['books']:
         libro_a_xml(contenedor, libro)
-    return responder_xml(raiz, estado)
+    return raiz
+
+
+def error_a_xml(datos):
+    raiz = ET.Element('error', {'code': str(datos['code'])})
+    ET.SubElement(raiz, 'message').text = datos['message']
+    for detalle in datos.get('details', []):
+        ET.SubElement(raiz, 'detail').text = detalle
+    return raiz
+
+
+def resultado_a_xml(datos):
+    raiz = ET.Element('result', {'status': datos['status']})
+    ET.SubElement(raiz, 'message').text = datos['message']
+    libro = datos.get('book')
+    if libro:
+        ET.SubElement(raiz, 'book', {'isbn': libro['isbn']}).text = libro['title']
+    return raiz
+
+
+def salud_a_xml(datos):
+    raiz = ET.Element('health', {'status': datos['status']})
+    ET.SubElement(raiz, 'database').text = datos['database']
+    if 'books' in datos:
+        ET.SubElement(raiz, 'books').text = str(datos['books'])
+    return raiz
+
+
+def servicio_a_xml(datos):
+    raiz = ET.Element('service', {'name': datos['name'],
+                                  'version': datos['version']})
+    for punto in datos['endpoints']:
+        ET.SubElement(raiz, 'endpoint',
+                      {'path': punto['path']}).text = punto['description']
+    return raiz
+
+
+RENDERIZADORES_XML = {
+    'library': catalogo_a_xml,
+    'error':   error_a_xml,
+    'result':  resultado_a_xml,
+    'health':  salud_a_xml,
+    'service': servicio_a_xml,
+}
+
+
+# --- Atajos que usan las vistas ----------------------------------------------
+def responder_catalogo(libros, estado=200):
+    datos = {'count': len(libros),
+             'books': [libro_a_dict(libro) for libro in libros]}
+    return responder('library', datos, estado)
+
+
+def error_respuesta(codigo, mensaje, detalles=None):
+    """Error legible. Nunca expone SQL, nombres de tabla ni trazas."""
+    datos = {'code': codigo, 'message': mensaje}
+    if detalles:
+        datos['details'] = list(detalles)
+    return responder('error', datos, codigo)
 
 
 # -----------------------------------------------------------------------------
@@ -430,6 +618,10 @@ def datos_entrantes():
         valores = request.form.getlist(clave)
         datos[clave] = valores if clave in CAMPOS_LISTA else valores[0]
     for clave in request.args:
+        # 'format' elige la serializacion de la respuesta y ademas choca de
+        # nombre con el formato editorial del libro: no es un dato del alta.
+        if clave == 'format':
+            continue
         datos.setdefault(clave, request.args.get(clave))
     return datos
 
@@ -462,8 +654,20 @@ def buscar_por_isbn(cur, isbn):
 
 # =============================================================================
 # Endpoints
+#
+# Cada vista se registra dos veces: la ruta del enunciado (/books...) y la
+# historica (/api/books...), que se conserva porque ya hay clientes y
+# documentacion apuntando a ella. Flask admite varios @app.route sobre la misma
+# funcion, asi que es un alias de verdad y no una copia que pueda divergir.
+#
+# Werkzeug ordena las reglas por especificidad, de modo que /books/search y
+# /books/insert ganan sobre /books/<isbn> sin depender del orden de este
+# archivo. La consecuencia es que un ISBN llamado literalmente "search" seria
+# inalcanzable por esa ruta; no existe tal ISBN, ni puede existir (el CHECK del
+# esquema exige digitos y guiones).
 # =============================================================================
 
+@app.route('/books', methods=['GET'])
 @app.route('/api/books', methods=['GET'])
 def listar_libros():
     limite = request.args.get('limite', type=int)
@@ -476,7 +680,7 @@ def listar_libros():
     with cursor_bd() as cur:
         libros = leer_libros(cur, orden=orden, direccion=direccion,
                              limite=limite, desplazamiento=max(0, desplazamiento))
-    return catalogo_a_xml(libros)
+    return responder_catalogo(libros)
 
 
 # Filtros de busqueda. La clave elige un fragmento de SQL escrito aqui; el
@@ -508,6 +712,7 @@ FILTROS = {
 }
 
 
+@app.route('/books/search', methods=['GET'])
 @app.route('/api/books/search', methods=['GET'])
 def buscar_libros():
     condiciones, parametros, errores = [], [], []
@@ -533,9 +738,9 @@ def buscar_libros():
         parametros.extend(['%{}%'.format(libre)] * 3)
 
     if errores:
-        return error_xml(400, 'Los filtros de busqueda no son validos.', errores)
+        return error_respuesta(400, 'Los filtros de busqueda no son validos.', errores)
     if not condiciones:
-        return error_xml(400, 'Indica al menos un filtro de busqueda.',
+        return error_respuesta(400, 'Indica al menos un filtro de busqueda.',
                          ['Filtros disponibles: q, ' + ', '.join(sorted(FILTROS))])
 
     orden = ORDENES.get((request.args.get('orden') or 'titulo').lower(), 'l.titulo')
@@ -544,44 +749,47 @@ def buscar_libros():
     with cursor_bd() as cur:
         libros = leer_libros(cur, ' AND '.join(condiciones), parametros,
                              orden=orden, direccion=direccion)
-    return catalogo_a_xml(libros)
+    return responder_catalogo(libros)
 
 
+@app.route('/books/<isbn>', methods=['GET'])
 @app.route('/api/book/<isbn>', methods=['GET'])
 def obtener_libro(isbn):
     with cursor_bd() as cur:
         libro = buscar_por_isbn(cur, isbn.strip())
     if libro is None:
-        return error_xml(404, 'No existe un libro con ese ISBN.')
-    return catalogo_a_xml([libro])
+        return error_respuesta(404, 'No existe un libro con ese ISBN.')
+    return responder_catalogo([libro])
 
 
+@app.route('/books/author/<int:author_id>', methods=['GET'])
 @app.route('/api/book/author/<int:author_id>', methods=['GET'])
 def libros_por_autor(author_id):
     with cursor_bd() as cur:
         cur.execute('SELECT nombre FROM autores WHERE id = %s', (author_id,))
         autor = cur.fetchone()
         if autor is None:
-            return error_xml(404, 'No existe un autor con ese identificador.')
+            return error_respuesta(404, 'No existe un autor con ese identificador.')
         libros = leer_libros(
             cur,
             'EXISTS (SELECT 1 FROM libros_autores la '
             'WHERE la.libro_id = l.id AND la.autor_id = %s)',
             (author_id,))
-    return catalogo_a_xml(libros)
+    return responder_catalogo(libros)
 
 
+@app.route('/books/insert', methods=['POST'])
 @app.route('/api/book/insert', methods=['POST'])
 def insertar_libro():
     if not escritura_autorizada():
-        return error_xml(401, 'Esta operacion requiere una clave de escritura.')
+        return error_respuesta(401, 'Esta operacion requiere una clave de escritura.')
 
     datos = datos_entrantes()
     limpio, errores = validar_libro(datos, parcial=False)
     autores = _lista_de_ids(datos, 'autores', errores)
     generos = _lista_de_ids(datos, 'generos', errores)
     if errores:
-        return error_xml(400, 'Los datos del libro no son validos.', errores)
+        return error_respuesta(400, 'Los datos del libro no son validos.', errores)
 
     columnas = ['isbn', 'titulo', 'anio_publicacion', 'sinopsis', 'precio',
                 'stock', 'categoria_id', 'formato_id']
@@ -603,26 +811,28 @@ def insertar_libro():
                                      libro_id, generos)
             libro = leer_libros(cur, 'l.id = %s', (libro_id,))[0]
     except pgerrors.UniqueViolation:
-        return error_xml(409, 'Ya existe un libro registrado con ese ISBN.')
+        return error_respuesta(409, 'Ya existe un libro registrado con ese ISBN.')
     except pgerrors.ForeignKeyViolation:
-        return error_xml(400, 'La categoria, el formato, el autor o el genero '
+        return error_respuesta(400, 'La categoria, el formato, el autor o el genero '
                               'indicado no existe.')
     except pgerrors.CheckViolation:
-        return error_xml(400, 'Los datos no cumplen una regla del catalogo.')
+        return error_respuesta(400, 'Los datos no cumplen una regla del catalogo.')
 
-    return catalogo_a_xml([libro], estado=201)
+    return responder_catalogo([libro], estado=201)
 
 
+@app.route('/books/update', methods=['PUT', 'POST'])
+@app.route('/books/update/<isbn>', methods=['PUT', 'POST'])
 @app.route('/api/book/update', methods=['PUT', 'POST'])
 @app.route('/api/book/update/<isbn>', methods=['PUT', 'POST'])
 def actualizar_libro(isbn=None):
     if not escritura_autorizada():
-        return error_xml(401, 'Esta operacion requiere una clave de escritura.')
+        return error_respuesta(401, 'Esta operacion requiere una clave de escritura.')
 
     datos = datos_entrantes()
     objetivo = (isbn or datos.get('isbn') or '').strip()
     if not objetivo:
-        return error_xml(400, 'Indica el ISBN del libro que se va a actualizar.')
+        return error_respuesta(400, 'Indica el ISBN del libro que se va a actualizar.')
 
     # El isbn de la URL identifica; isbn_nuevo, si viene, lo reemplaza.
     if isbn and 'isbn' in datos:
@@ -636,16 +846,16 @@ def actualizar_libro(isbn=None):
     autores = _lista_de_ids(datos, 'autores', errores)
     generos = _lista_de_ids(datos, 'generos', errores)
     if errores:
-        return error_xml(400, 'Los datos del libro no son validos.', errores)
+        return error_respuesta(400, 'Los datos del libro no son validos.', errores)
     if not limpio and autores is None and generos is None:
-        return error_xml(400, 'No se envio ningun campo que actualizar.')
+        return error_respuesta(400, 'No se envio ningun campo que actualizar.')
 
     try:
         with cursor_bd(escribe=True) as cur:
             cur.execute('SELECT id FROM libros WHERE isbn = %s', (objetivo,))
             fila = cur.fetchone()
             if fila is None:
-                return error_xml(404, 'No existe un libro con ese ISBN.')
+                return error_respuesta(404, 'No existe un libro con ese ISBN.')
             libro_id = fila['id']
 
             if limpio:
@@ -661,26 +871,28 @@ def actualizar_libro(isbn=None):
                                      libro_id, generos)
             libro = leer_libros(cur, 'l.id = %s', (libro_id,))[0]
     except pgerrors.UniqueViolation:
-        return error_xml(409, 'Ya existe otro libro registrado con ese ISBN.')
+        return error_respuesta(409, 'Ya existe otro libro registrado con ese ISBN.')
     except pgerrors.ForeignKeyViolation:
-        return error_xml(400, 'La categoria, el formato, el autor o el genero '
+        return error_respuesta(400, 'La categoria, el formato, el autor o el genero '
                               'indicado no existe.')
     except pgerrors.CheckViolation:
-        return error_xml(400, 'Los datos no cumplen una regla del catalogo.')
+        return error_respuesta(400, 'Los datos no cumplen una regla del catalogo.')
 
-    return catalogo_a_xml([libro])
+    return responder_catalogo([libro])
 
 
+@app.route('/books/delete', methods=['DELETE', 'POST'])
+@app.route('/books/delete/<isbn>', methods=['DELETE', 'POST'])
 @app.route('/api/book/delete', methods=['DELETE', 'POST'])
 @app.route('/api/book/delete/<isbn>', methods=['DELETE', 'POST'])
 def borrar_libro(isbn=None):
     if not escritura_autorizada():
-        return error_xml(401, 'Esta operacion requiere una clave de escritura.')
+        return error_respuesta(401, 'Esta operacion requiere una clave de escritura.')
 
     datos = datos_entrantes()
     objetivo = (isbn or datos.get('isbn') or request.args.get('isbn') or '').strip()
     if not objetivo:
-        return error_xml(400, 'Indica el ISBN del libro que se va a borrar.')
+        return error_respuesta(400, 'Indica el ISBN del libro que se va a borrar.')
 
     try:
         with cursor_bd(escribe=True) as cur:
@@ -689,18 +901,20 @@ def borrar_libro(isbn=None):
                         (objetivo,))
             fila = cur.fetchone()
     except pgerrors.ForeignKeyViolation:
-        return error_xml(409, 'El libro no se puede borrar porque otro registro '
+        return error_respuesta(409, 'El libro no se puede borrar porque otro registro '
                               'todavia depende de el.')
 
     if fila is None:
-        return error_xml(404, 'No existe un libro con ese ISBN.')
+        return error_respuesta(404, 'No existe un libro con ese ISBN.')
 
-    raiz = ET.Element('result', {'status': 'ok'})
-    ET.SubElement(raiz, 'message').text = 'Libro eliminado del catalogo.'
-    ET.SubElement(raiz, 'book', {'isbn': fila['isbn']}).text = fila['titulo']
-    return responder_xml(raiz)
+    return responder('result', {
+        'status': 'ok',
+        'message': 'Libro eliminado del catalogo.',
+        'book': {'isbn': fila['isbn'], 'title': fila['titulo']},
+    })
 
 
+@app.route('/health', methods=['GET'])
 @app.route('/api/health', methods=['GET'])
 def salud():
     try:
@@ -709,14 +923,11 @@ def salud():
             total = cur.fetchone()['total']
     except psycopg2.Error:
         log.exception('Fallo la verificacion de salud')
-        raiz = ET.Element('health', {'status': 'error'})
-        ET.SubElement(raiz, 'database').text = 'sin conexion'
-        return responder_xml(raiz, 503)
+        return responder('health',
+                         {'status': 'error', 'database': 'sin conexion'}, 503)
 
-    raiz = ET.Element('health', {'status': 'ok'})
-    ET.SubElement(raiz, 'database').text = 'conectada'
-    ET.SubElement(raiz, 'books').text = str(total)
-    return responder_xml(raiz)
+    return responder('health',
+                     {'status': 'ok', 'database': 'conectada', 'books': total})
 
 
 @app.route('/library.css', methods=['GET'])
@@ -730,19 +941,19 @@ def hoja_de_estilos():
 # -----------------------------------------------------------------------------
 @app.errorhandler(404)
 def _no_encontrado(_error):
-    return error_xml(404, 'El recurso solicitado no existe.',
+    return error_respuesta(404, 'El recurso solicitado no existe.',
                      ['Consulta la documentacion en /docs'])
 
 
 @app.errorhandler(405)
 def _metodo_no_permitido(_error):
-    return error_xml(405, 'Ese metodo HTTP no esta permitido en esta ruta.')
+    return error_respuesta(405, 'Ese metodo HTTP no esta permitido en esta ruta.')
 
 
 @app.errorhandler(psycopg2.OperationalError)
 def _sin_base(error):
     log.error('No hay conexion con la base de datos: %s', error)
-    return error_xml(503, 'El servicio no puede conectarse a su base de datos.')
+    return error_respuesta(503, 'El servicio no puede conectarse a su base de datos.')
 
 
 @app.errorhandler(Exception)
@@ -752,23 +963,41 @@ def _fallo_inesperado(error):
     # mensaje original: puede contener SQL o nombres de tabla. La traza completa
     # queda del lado del servidor.
     if isinstance(error, HTTPException):
-        return error_xml(error.code or 500, 'La solicitud no se pudo atender.')
+        return error_respuesta(error.code or 500, 'La solicitud no se pudo atender.')
     log.exception('Fallo no controlado: %s', error)
-    return error_xml(500, 'Ocurrio un error al procesar la solicitud.')
+    return error_respuesta(500, 'Ocurrio un error al procesar la solicitud.')
 
 
 # =============================================================================
 # Documentacion Swagger (OpenAPI 3). La especificacion se sirve en
 # /apispec.json y la interfaz en /docs.
 # =============================================================================
-RESPUESTA_XML = {
-    'description': 'Catalogo en XML con la misma estructura que library.xml',
-    'content': {'application/xml': {'schema': {'type': 'string'}}},
+RESPUESTA_CATALOGO = {
+    'description': ('Catalogo con la estructura de library.xml. XML por '
+                    'defecto; JSON con ?format=json.'),
+    'content': {'application/xml': {'schema': {'type': 'string'}},
+                'application/json': {'schema': {'type': 'object'}}},
 }
 RESPUESTA_ERROR = {
-    'description': 'Error explicado en XML: <error code="..."><message>...',
-    'content': {'application/xml': {'schema': {'type': 'string'}}},
+    'description': ('Error explicado. XML: <error code="..."><message>... '
+                    'JSON: {"code": ..., "message": ..., "details": [...]}.'),
+    'content': {'application/xml': {'schema': {'type': 'string'}},
+                'application/json': {'schema': {'type': 'object'}}},
 }
+
+# Ruta del enunciado por cada ruta historica. Una sola tabla para el indice del
+# servicio y para la especificacion: si se agrega un endpoint, se declara aqui.
+ALIAS = {
+    '/api/books':                    '/books',
+    '/api/books/search':             '/books/search',
+    '/api/book/{isbn}':              '/books/{isbn}',
+    '/api/book/author/{author_id}':  '/books/author/{author_id}',
+    '/api/book/insert':              '/books/insert',
+    '/api/book/update':              '/books/update',
+    '/api/book/delete':              '/books/delete',
+    '/api/health':                   '/health',
+}
+ALIAS_INVERSO = {nuevo: viejo for viejo, nuevo in ALIAS.items()}
 
 
 def _param(nombre, descripcion, tipo='string', donde='query', requerido=False):
@@ -825,8 +1054,15 @@ ESPECIFICACION = {
             '`<book>` lleva el ISBN como atributo e incluye titulo, autores, '
             'anio, generos, precio, stock, formato, imagenes y los conceptos '
             'definidos en ese libro con su descripcion.\n\n'
-            'Todas las respuestas son `application/xml`. Las escrituras aceptan '
-            'JSON o formulario.'),
+            'Todos los endpoints responden en XML o en JSON indistintamente, '
+            'segun el parametro `format`: `?format=json` devuelve '
+            '`application/json` y `?format=xml` —o la ausencia del parametro— '
+            'devuelve `application/xml`. Cualquier otro valor es un 400.\n\n'
+            'Cada operacion se publica en la ruta del enunciado (`/books...`) y '
+            'en la historica con prefijo `/api`, que se conserva y hace '
+            'exactamente lo mismo.\n\n'
+            'Las escrituras aceptan JSON o formulario en la entrada, con '
+            'independencia del formato que pidan para la respuesta.'),
     },
     'servers': [{'url': '/', 'description': 'Este servidor'}],
     'tags': [
@@ -844,7 +1080,7 @@ ESPECIFICACION = {
                 _param('limite', 'Maximo de libros a devolver (1-500)', 'integer'),
                 _param('desplazamiento', 'Libros a saltar', 'integer'),
             ],
-            'responses': {'200': RESPUESTA_XML, '503': RESPUESTA_ERROR},
+            'responses': {'200': RESPUESTA_CATALOGO, '503': RESPUESTA_ERROR},
         }},
         '/api/books/search': {'get': {
             'tags': ['Lectura'],
@@ -869,27 +1105,27 @@ ESPECIFICACION = {
                 _param('orden', 'titulo | precio | anio | stock | isbn'),
                 _param('dir', 'asc o desc'),
             ],
-            'responses': {'200': RESPUESTA_XML, '400': RESPUESTA_ERROR},
+            'responses': {'200': RESPUESTA_CATALOGO, '400': RESPUESTA_ERROR},
         }},
         '/api/book/{isbn}': {'get': {
             'tags': ['Lectura'],
             'summary': 'Devuelve un libro por su ISBN',
             'parameters': [_param('isbn', 'ISBN del libro', donde='path',
                                   requerido=True)],
-            'responses': {'200': RESPUESTA_XML, '404': RESPUESTA_ERROR},
+            'responses': {'200': RESPUESTA_CATALOGO, '404': RESPUESTA_ERROR},
         }},
         '/api/book/author/{author_id}': {'get': {
             'tags': ['Lectura'],
             'summary': 'Devuelve los libros de un autor',
             'parameters': [_param('author_id', 'Id del autor', 'integer',
                                   donde='path', requerido=True)],
-            'responses': {'200': RESPUESTA_XML, '404': RESPUESTA_ERROR},
+            'responses': {'200': RESPUESTA_CATALOGO, '404': RESPUESTA_ERROR},
         }},
         '/api/book/insert': {'post': {
             'tags': ['Escritura'],
             'summary': 'Registra un libro nuevo',
             'requestBody': _cuerpo(ESQUEMA_LIBRO),
-            'responses': {'201': RESPUESTA_XML, '400': RESPUESTA_ERROR,
+            'responses': {'201': RESPUESTA_CATALOGO, '400': RESPUESTA_ERROR,
                           '401': RESPUESTA_ERROR, '409': RESPUESTA_ERROR},
         }},
         '/api/book/update': {'put': {
@@ -900,7 +1136,7 @@ ESPECIFICACION = {
                            'anteriores. Tambien acepta POST y '
                            '/api/book/update/{isbn}.',
             'requestBody': _cuerpo(ESQUEMA_LIBRO_PARCIAL),
-            'responses': {'200': RESPUESTA_XML, '400': RESPUESTA_ERROR,
+            'responses': {'200': RESPUESTA_CATALOGO, '400': RESPUESTA_ERROR,
                           '401': RESPUESTA_ERROR, '404': RESPUESTA_ERROR,
                           '409': RESPUESTA_ERROR},
         }},
@@ -914,13 +1150,13 @@ ESPECIFICACION = {
             'requestBody': {'required': False, 'content': {'application/json': {
                 'schema': {'type': 'object',
                            'properties': {'isbn': {'type': 'string'}}}}}},
-            'responses': {'200': RESPUESTA_XML, '400': RESPUESTA_ERROR,
+            'responses': {'200': RESPUESTA_CATALOGO, '400': RESPUESTA_ERROR,
                           '401': RESPUESTA_ERROR, '404': RESPUESTA_ERROR},
         }},
         '/api/health': {'get': {
             'tags': ['Servicio'],
             'summary': 'Estado del servicio y de su base de datos',
-            'responses': {'200': RESPUESTA_XML, '503': RESPUESTA_ERROR},
+            'responses': {'200': RESPUESTA_CATALOGO, '503': RESPUESTA_ERROR},
         }},
     },
     'components': {
@@ -933,6 +1169,34 @@ ESPECIFICACION = {
         },
     },
 }
+
+
+def _publicar_rutas(rutas):
+    """Declara cada operacion en sus dos rutas y le agrega el parametro format.
+
+    La copia es profunda para que la nota de la ruta historica no se escriba
+    tambien en la del enunciado; el comportamiento del servicio es uno solo.
+    """
+    publicadas = {}
+    for historica, operaciones in rutas.items():
+        del_enunciado = ALIAS[historica]
+        for operacion in operaciones.values():
+            operacion.setdefault('parameters', []).append(PARAM_FORMATO)
+        publicadas[del_enunciado] = operaciones
+
+        copia = copy.deepcopy(operaciones)
+        nota = 'Ruta historica: hace exactamente lo mismo que {}.'.format(
+            del_enunciado)
+        for operacion in copia.values():
+            descripcion = operacion.get('description')
+            operacion['description'] = (descripcion + ' ' + nota
+                                        if descripcion else nota)
+        publicadas[historica] = copia
+    return publicadas
+
+
+PARAM_FORMATO = _param('format', 'json para JSON; xml o ausente para XML')
+ESPECIFICACION['paths'] = _publicar_rutas(ESPECIFICACION['paths'])
 
 
 @app.route('/apispec.json', methods=['GET'])
@@ -973,20 +1237,25 @@ def documentacion():
 
 @app.route('/', methods=['GET'])
 def indice():
-    raiz = ET.Element('service', {'name': 'catalogo-libreria', 'version': '1.0.0'})
-    for ruta, descripcion in [
+    puntos = [
         ('/docs', 'Documentacion Swagger'),
-        ('/api/books', 'Todos los libros'),
-        ('/api/books/search', 'Busqueda por atributos'),
-        ('/api/book/{isbn}', 'Un libro'),
-        ('/api/book/author/{id}', 'Libros de un autor'),
-        ('/api/book/insert', 'Alta (POST)'),
-        ('/api/book/update', 'Modificacion (PUT)'),
-        ('/api/book/delete', 'Baja (DELETE)'),
-        ('/api/health', 'Estado del servicio'),
-    ]:
-        ET.SubElement(raiz, 'endpoint', {'path': ruta}).text = descripcion
-    return responder_xml(raiz)
+        ('/books', 'Todos los libros'),
+        ('/books/search', 'Busqueda por atributos'),
+        ('/books/{isbn}', 'Un libro'),
+        ('/books/author/{author_id}', 'Libros de un autor'),
+        ('/books/insert', 'Alta (POST)'),
+        ('/books/update', 'Modificacion (PUT)'),
+        ('/books/delete', 'Baja (DELETE)'),
+        ('/health', 'Estado del servicio'),
+    ]
+    puntos += [(ALIAS_INVERSO[ruta], descripcion + ' (ruta historica)')
+               for ruta, descripcion in puntos if ruta in ALIAS_INVERSO]
+    return responder('service', {
+        'name': 'catalogo-libreria',
+        'version': '1.1.0',
+        'endpoints': [{'path': ruta, 'description': descripcion}
+                      for ruta, descripcion in puntos],
+    })
 
 
 if __name__ == '__main__':
