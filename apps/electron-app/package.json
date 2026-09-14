@@ -1,0 +1,15 @@
+{
+  "name": "libreria-electron",
+  "version": "1.0.0",
+  "description": "Cliente de escritorio Electron del catalogo de la libreria, consumido exclusivamente en XML",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron ."
+  },
+  "author": "Libreria Online",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^44.0.0"
+  }
+}

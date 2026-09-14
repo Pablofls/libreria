@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <!-- Sin CDNs: el estilo y el script son locales. Las portadas son lo unico
+         remoto que se permite cargar. -->
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'self'; img-src 'self' http: https: data:; style-src 'self'; script-src 'self'; connect-src 'none'">
+    <title>Libreria Online — Catalogo XML</title>
+    <link rel="stylesheet" href="estilos.css">
+</head>
+<body>
+    <header class="barra-superior">
+        <div class="barra-superior__identidad">
+            <span class="barra-superior__icono" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="26" height="26"><path fill="currentColor" d="M18 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2m0 18H6.5a.5.5 0 0 1 0-1H18zM8 4h2v7l-1-.75L8 11z"/></svg>
+            </span>
+            <div>
+                <h1 class="barra-superior__titulo">Catalogo de la libreria</h1>
+                <p class="barra-superior__subtitulo" id="origen">Sin conexion todavia</p>
+            </div>
+        </div>
+        <div class="barra-superior__acciones">
+            <button type="button" class="boton boton--tonal" id="btn-recargar">
+                <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M17.65 6.35A8 8 0 1 0 19.73 14h-2.08A6 6 0 1 1 12 6a5.9 5.9 0 0 1 4.22 1.78L13 11h7V4z"/></svg>
+                Recargar
+            </button>
+            <button type="button" class="boton boton--relleno" id="btn-config">
+                <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="m19.14 12.94.02-.94-.02-.94 2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.4 7.4 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.49.42l-.36 2.54c-.59.24-1.13.56-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.66 8.84a.5.5 0 0 0 .12.64l2.03 1.58-.02.94.02.94-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32c.12.22.38.3.6.22l2.39-.96c.5.38 1.04.7 1.63.94l.36 2.54c.04.24.25.42.49.42h3.84c.25 0 .46-.18.5-.42l.36-2.54c.58-.24 1.13-.56 1.63-.94l2.39.96c.22.08.48 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64zM12 15.5A3.5 3.5 0 1 1 15.5 12 3.5 3.5 0 0 1 12 15.5"/></svg>
+                Configurar servicio
+            </button>
+        </div>
+    </header>
+
+    <main class="contenido">
+        <section class="aviso aviso--cargando" id="estado-cargando">
+            <span class="giro" aria-hidden="true"></span>
+            <p>Descargando el catalogo en XML…</p>
+        </section>
+
+        <section class="aviso aviso--error" id="estado-error" hidden>
+            <h2 class="aviso__titulo">No se pudo leer el catalogo</h2>
+            <p id="estado-error-texto"></p>
+            <button type="button" class="boton boton--relleno" id="btn-error-config">Revisar configuracion</button>
+        </section>
+
+        <div class="resumen" id="resumen" hidden>
+            <span class="chip" id="chip-total"></span>
+            <span class="chip chip--suave" id="chip-pagina"></span>
+        </div>
+
+        <div class="rejilla" id="rejilla" hidden></div>
+
+        <nav class="paginacion" id="paginacion" hidden aria-label="Paginacion del catalogo">
+            <button type="button" class="boton boton--texto" id="btn-anterior">
+                <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
+                Anterior
+            </button>
+            <div class="paginacion__numeros" id="paginacion-numeros"></div>
+            <button type="button" class="boton boton--texto" id="btn-siguiente">
+                Siguiente
+                <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+            </button>
+        </nav>
+    </main>
+
+    <dialog class="dialogo" id="dialogo-config">
+        <form method="dialog" id="form-config" novalidate>
+            <h2 class="dialogo__titulo">Configuracion del microservicio</h2>
+            <p class="dialogo__texto">
+                Los datos se guardan en <code>localStorage</code> y se conservan entre
+                arranques de la aplicacion.
+            </p>
+
+            <label class="campo">
+                <span class="campo__etiqueta">IP o host</span>
+                <input class="campo__control" id="campo-ip" name="ip" autocomplete="off" spellcheck="false" placeholder="34.51.80.53">
+            </label>
+
+            <label class="campo">
+                <span class="campo__etiqueta">Puerto</span>
+                <input class="campo__control" id="campo-puerto" name="puerto" inputmode="numeric" autocomplete="off" placeholder="5001">
+            </label>
+
+            <label class="campo">
+                <span class="campo__etiqueta">Endpoint</span>
+                <input class="campo__control" id="campo-endpoint" name="endpoint" autocomplete="off" spellcheck="false" placeholder="/books">
+            </label>
+
+            <label class="campo">
+                <span class="campo__etiqueta">Base de las portadas (opcional)</span>
+                <input class="campo__control" id="campo-imagenes" name="imagenes" autocomplete="off" spellcheck="false" placeholder="http://34.51.80.53/library/uploads">
+                <span class="campo__ayuda">El XML solo trae el nombre del archivo; aqui va la ruta publica que lo sirve.</span>
+            </label>
+
+            <p class="dialogo__vista-previa">
+                URL efectiva: <code id="vista-previa-url">—</code>
+            </p>
+            <p class="dialogo__error" id="dialogo-error" hidden></p>
+
+            <div class="dialogo__acciones">
+                <button type="button" class="boton boton--texto" id="btn-restablecer">Restablecer</button>
+                <span class="dialogo__separador"></span>
+                <button type="button" class="boton boton--texto" id="btn-cancelar">Cancelar</button>
+                <button type="button" class="boton boton--relleno" id="btn-guardar">Guardar y recargar</button>
+            </div>
+        </form>
+    </dialog>
+
+    <script src="renderer.js"></script>
+</body>
+</html>

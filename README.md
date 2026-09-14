@@ -28,7 +28,8 @@ REST ni JSON entre navegador y servidor.
 10. [Pruebas](#pruebas)
 11. [Despliegue](#despliegue)
 12. [Agregar un módulo nuevo](#agregar-un-módulo-nuevo)
-13. [Documentación del ejercicio](#documentación-del-ejercicio)
+13. [Cliente de escritorio en Electron](#cliente-de-escritorio-en-electron)
+14. [Documentación del ejercicio](#documentación-del-ejercicio)
 
 ---
 
@@ -163,6 +164,11 @@ ejercicio_guiado2/
 │   ├── nginx-library.conf        Reverse proxy con NGINX
 │   ├── apache-library.conf       Alternativa con Apache
 │   └── libreria.service          Unidad de systemd, con endurecimiento
+│
+├── apps/electron-app/            Cliente de escritorio (Electron) que consume el XML
+│   ├── main.js                   Proceso principal: ventana y descarga del XML
+│   ├── preload.js                Puente aislado hacia el renderer
+│   └── renderer/                 index.html · estilos.css · renderer.js
 │
 ├── tests/pruebas.sh              57 pruebas ejecutables de la matriz
 └── docs/                         ver "Documentación del ejercicio"
@@ -559,6 +565,39 @@ app.use('/editoriales', require('./src/modules/editoriales/editoriales.routes'))
 
 Sigue el patrón del módulo vecino más parecido en vez de introducir estructuras
 nuevas.
+
+---
+
+## Cliente de escritorio en Electron
+
+`apps/electron-app/` es una aplicación de escritorio que consume el catálogo
+**exclusivamente en XML** desde el microservicio (`/books?format=xml`) y lo
+muestra en tarjetas Material Design con portada, título, autores, ISBN y precio:
+6 por página, con paginación.
+
+```bash
+cd apps/electron-app
+npm install
+npm start
+```
+
+Tres detalles de diseño que conviene conocer antes de tocarla:
+
+- **La petición HTTP vive en el proceso principal**, no en la ventana. Con la
+  página cargada por `file://`, el microservicio bloquearía el `fetch` por CORS;
+  el XML viaja al renderer por IPC y allí se parsea con `DOMParser`.
+- **Sólo XML.** Se pide con `Accept: application/xml` y con `?format=xml`
+  forzado en la URL; si la respuesta no es XML, se rechaza con un mensaje en vez
+  de intentar interpretarla.
+- **La configuración del servicio (IP, puerto y endpoint) se edita desde un
+  popup y se persiste en `localStorage`.** El XML sólo trae el nombre del
+  archivo de la portada, así que el popup incluye además la ruta pública que las
+  sirve; por defecto `http://<IP>/library/uploads`, que es donde el monolito las
+  publica en la VM.
+
+Los pasos completos de instalación —incluido cómo instalar Node.js en una
+máquina limpia— están en
+[apps/electron-app/README.md](apps/electron-app/README.md).
 
 ---
 
