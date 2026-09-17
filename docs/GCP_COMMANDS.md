@@ -78,15 +78,64 @@ gcloud compute firewall-rules create libreria-permitir-https \
   --direction=INGRESS --action=ALLOW --rules=tcp:443 \
   --target-tags=https-server --source-ranges=0.0.0.0/0 \
   --description="HTTPS hacia Apache/NGINX"
+
+# Microservicio de catálogo. La segunda y última excepción: el cliente Electron
+# corre en la máquina del usuario, fuera de la VM, y consume el XML directo.
+gcloud compute firewall-rules create libreria-permitir-catalogo \
+  --direction=INGRESS --action=ALLOW --rules=tcp:5000 \
+  --target-tags=http-server --source-ranges=0.0.0.0/0 \
+  --description="Microservicio de catalogo XML/JSON"
+```
+
+**Una regla por etiqueta sólo sirve si la VM lleva esa etiqueta.** Si no la
+tiene, la regla se crea sin error y no abre nada. Compruébalo antes:
+
+```bash
+gcloud compute instances describe maquina01 --zone northamerica-south1-c \
+  --format="value(tags.items.list())"
+```
+
+**Y abrir en GCP no basta:** dentro de la VM está `firewalld`, que bloquea por su
+cuenta. El síntoma de olvidarlo es un `curl` que se queda colgado sin responder
+(si diera *connection refused*, el problema sería otro: el servicio no corre, o
+escucha sólo en loopback).
+
+```bash
+sudo firewall-cmd --add-port=5000/tcp --permanent
+sudo firewall-cmd --reload && sudo firewall-cmd --list-ports
+```
+
+El 5000 queda abierto a `0.0.0.0/0`, y hay que asumir lo que implica: el
+catálogo expone `/books/insert`, `/books/update` y `/books/delete` corriendo con
+el rol `libreria_app`, que sí escribe. Lo único que separa esas rutas de
+cualquiera que alcance el puerto es `API_TOKEN`, vacío por omisión. Defínelo en
+`services/soap/.env` antes de dejar la regla abierta, o estrecha la regla a una
+sola IP:
+
+```bash
+gcloud compute firewall-rules update libreria-permitir-catalogo \
+  --source-ranges=TU_IP/32
 ```
 
 ### Puertos que NO se abren, y por qué
 
 | Puerto | Servicio | Decisión |
 |---|---|---|
-| 3000 | Node.js | **Cerrado.** Node escucha en `127.0.0.1`, así que ni abriéndolo se llegaría. Se mantiene cerrado igualmente: dos capas |
+| 3000 | Node.js | **Debería estar cerrado.** Node escucha en `127.0.0.1`, así que ni abriéndolo se llegaría; se mantendría cerrado igualmente, por tener dos capas. Ver la nota de abajo: hoy no lo está |
+| 5001 | Módulo SOAP | **Cerrado.** `RegistrarClasificacion` escribe en la base, así que no se publica: los clientes Java y Python llegan por un túnel SSH (`gcloud compute ssh maquina01 -- -N -L 5001:127.0.0.1:5001`) |
 | 5432 | PostgreSQL | **Cerrado.** La base sólo acepta conexiones locales. Exponerla a internet sería el error de configuración más caro posible en este proyecto |
 | 22 | SSH | Se usa la regla por omisión de la VPC con IAP, o `gcloud compute ssh`, que no requiere abrir el puerto al mundo |
+
+> **Discrepancia pendiente entre esta tabla y la realidad del proyecto.** Un
+> listado de reglas muestra `allow-3000` abriendo `tcp:3000` a `0.0.0.0/0` sin
+> etiqueta —y sin etiqueta aplica a TODAS las instancias de la red—, además de
+> `permitir-8000-devoluciones` en el 8000 y `default-allow-rdp` en el 3389, que
+> es un puerto de Windows y esta VM es CentOS. Ninguna de las tres debería
+> existir. Revisar con:
+>
+> ```bash
+> gcloud compute firewall-rules list --format="table(name,allowed[].map().firewall_rule().list(),sourceRanges.list(),targetTags.list())"
+> ```
 
 ```bash
 # Comprobar qué quedó realmente abierto:

@@ -163,7 +163,9 @@ ejercicio_guiado2/
 ├── deploy/
 │   ├── nginx-library.conf        Reverse proxy con NGINX
 │   ├── apache-library.conf       Alternativa con Apache
-│   └── libreria.service          Unidad de systemd, con endurecimiento
+│   ├── libreria.service          Unidad de systemd del monolito, con endurecimiento
+│   ├── libreria-catalogo.service Unidad del microservicio de catálogo (5000)
+│   └── libreria-soap.service     Unidad del módulo SOAP de clasificación (5001)
 │
 ├── apps/electron-app/            Cliente de escritorio (Electron) que consume el XML
 │   ├── main.js                   Proceso principal: ventana y descarga del XML
@@ -530,7 +532,127 @@ curl -I http://IP_DEL_SERVIDOR/library/login      # 200
 curl -I --max-time 5 http://IP_DEL_SERVIDOR:3000/ # debe fallar
 ```
 
+> **Esa segunda comprobación hoy NO falla.** En el proyecto de GCP existe una
+> regla `allow-3000` que abre `tcp:3000` a `0.0.0.0/0` sin etiqueta de red, así
+> que el monolito es alcanzable directo, saltándose el proxy. Está pendiente de
+> borrar; hasta entonces, este párrafo describe la intención, no la realidad.
+
 Los comandos completos están en [docs/GCP_COMMANDS.md](docs/GCP_COMMANDS.md).
+
+### Los tres servicios de la VM
+
+Son tres aplicaciones independientes, cada una con su unidad de systemd, su
+propio `.env` y su propio rol de PostgreSQL. Si una se cae, las otras siguen.
+
+| Servicio | Unidad | Puerto | Expuesto a internet |
+|---|---|---|---|
+| Monolito Node (Express + EJS) | `libreria.service` | 3000 | No por diseño: sólo por el proxy, bajo `/library` |
+| Microservicio de catálogo (XML/JSON) | `libreria-catalogo.service` | 5000 | Sí: lo consume el cliente Electron |
+| Módulo SOAP de clasificación | `libreria-soap.service` | 5001 | No: túnel SSH, ver [clients/README.md](clients/README.md) |
+
+**Por qué el catálogo está en 5000 y no en 5001.** Los enunciados del catálogo y
+del cliente Electron piden 5001, pero ahí vive el módulo SOAP, que lo tiene
+fijado en el `soap:address` de su WSDL, en sus evidencias ya capturadas y en los
+dos clientes Java y Python. Al Electron, en cambio, se le indica IP y puerto
+desde su propio popup de configuración. Ceder el 5001 sale mucho más barato que
+mover el SOAP. **Al demostrar el Electron hay que escribirle el puerto 5000 en
+ese popup**, o pedirá el catálogo al módulo SOAP y recibirá un `soap:Fault`.
+
+**Los dos servicios Python leen la misma variable `SOAP_PORT`**, cada uno desde
+el `.env` de su directorio. No les des un `.env` compartido: el segundo en
+arrancar moriría con *Address already in use* o, peor porque no se nota, el
+catálogo respondería envoltorios de SOAP.
+
+### Microservicio de catálogo
+
+```bash
+cd /opt/udem/libreria/services/soap
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+cp .env.example .env && chmod 600 .env     # completar DB_PASSWORD y API_TOKEN
+
+sudo restorecon -Rv /opt/udem/libreria/services/soap
+sudo cp /opt/udem/libreria/deploy/libreria-catalogo.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now libreria-catalogo
+systemctl status libreria-catalogo --no-pager -l
+```
+
+Tres cosas que cuestan un rato averiguar si no están escritas:
+
+- **El `restorecon` va DESPUÉS del `pip install`**, y hay que repetirlo cada vez
+  que se recree el entorno virtual. Los archivos clonados en el directorio
+  personal arrastran la etiqueta SELinux `user_home_t`, y systemd no puede
+  siquiera leer un enlace simbólico con ese tipo: el servicio falla con
+  `203/EXEC` y *Permission denied* aunque el binario corra perfectamente a mano.
+- **El `status` recién arrancado engaña.** A los pocos milisegundos muestra
+  `active (running)` con `Tasks: 1` y el PID entre paréntesis, antes de saberse
+  si el proceso sobrevivió. Espera unos segundos y comprueba que hay `Tasks: 3`
+  —el maestro de gunicorn y dos workers— y que `ss -lntp` lo ve en el puerto.
+- **Dos workers, al contrario que el módulo SOAP**, que está clavado en uno
+  porque guarda en memoria del proceso los nonces de WS-Security. Este servicio
+  no retiene nada entre peticiones, así que se puede replicar. Cada worker abre
+  su propio pool de hasta `DB_POOL_MAX` conexiones: si se suben los workers, hay
+  que bajar esa variable en la misma proporción.
+
+Operación diaria:
+
+```bash
+sudo systemctl restart libreria-catalogo
+journalctl -u libreria-catalogo -f        # logs en vivo, con cada petición
+```
+
+Antes de esto el servicio se lanzaba a mano con `python app.py`, colgando del
+shell de la sesión SSH. Al cerrar la terminal quedaba un proceso huérfano
+reteniendo el puerto, y el siguiente arranque fallaba con *Address already in
+use*. Con systemd el proceso cuelga de PID 1, vuelve solo tras reiniciar la VM
+(`enabled`) y se relevanta a los 5 segundos si se cae (`Restart=on-failure`).
+
+### Firewall: son dos, no uno
+
+Para publicar un puerto hay que abrirlo en **los dos**, y olvidar el segundo se
+manifiesta como un `curl` que se queda colgado sin responder:
+
+```bash
+# 1. GCP. La etiqueta debe coincidir con una que la VM realmente tenga:
+#    gcloud compute instances describe maquina01 --zone ZONA #      --format="value(tags.items.list())"
+gcloud compute firewall-rules create libreria-permitir-catalogo \
+  --direction=INGRESS --action=ALLOW --rules=tcp:5000 \
+  --target-tags=http-server --source-ranges=0.0.0.0/0
+
+# 2. firewalld, dentro de la VM
+sudo firewall-cmd --add-port=5000/tcp --permanent
+sudo firewall-cmd --reload && sudo firewall-cmd --list-ports
+```
+
+Diagnóstico: `curl` colgado sin respuesta es firewall; *connection refused* es
+que el servicio no corre o escucha sólo en loopback.
+
+> **Con el 5000 abierto a `0.0.0.0/0`, `/books/insert`, `/books/update` y
+> `/books/delete` quedan al alcance de cualquiera**, porque corren con el rol
+> `libreria_app`, que sí escribe. Lo único que los protege es `API_TOKEN`, y
+> viene vacío por omisión — el servicio lo avisa en cada arranque. Define uno en
+> `services/soap/.env`, o estrecha la regla a tu IP con
+> `gcloud compute firewall-rules update libreria-permitir-catalogo
+> --source-ranges=TU_IP/32`. Lo ideal es lo primero; lo segundo no sobrevive a
+> un cambio de red.
+
+### La IP pública es efímera
+
+Si la VM no tiene una IP reservada, GCP se la quita al apagarla y le da otra
+distinta al encenderla. Cada apagón rompe la URL de Postman y la configuración
+que el cliente Electron guardó en `localStorage`. Para comprobarlo y reservar la
+actual sin cortar nada:
+
+```bash
+gcloud compute addresses list        # vacío = efímera
+gcloud compute addresses create libreria-ip --addresses=LA_IP_ACTUAL --region=REGION
+```
+
+Una IP estática **en uso** es gratis; reservada con la VM apagada se cobra por
+hora. Si la VM va a quedar apagada mucho tiempo, libérala con
+`gcloud compute addresses delete libreria-ip --region=REGION`.
+
+Apagar la VM no deja nada encendido: se detienen los tres servicios. Al
+encenderla vuelven solos, porque las tres unidades están `enabled`.
 
 ---
 
