@@ -1,0 +1,106 @@
+# =============================================================================
+# deploy/libreria-catalogo.service
+# Unidad de systemd del microservicio de catalogo (XML/JSON).
+#
+#     sudo cp deploy/libreria-catalogo.service /etc/systemd/system/
+#     sudo systemctl daemon-reload
+#     sudo systemctl enable --now libreria-catalogo
+#     sudo systemctl status libreria-catalogo
+#     journalctl -u libreria-catalogo -f
+#
+# Sin esto, `python app.py` muere al cerrar la sesion SSH.
+#
+# Es el TERCER servicio de la VM, independiente de libreria.service (el
+# monolito Node, 3000) y de libreria-soap.service (el clasificador SOAP, 5001).
+# Cada uno en su puerto y con su propia unidad: si uno se cae, los otros siguen.
+#
+# PUERTO 5000, que es el default de services/soap/app.py. El enunciado del
+# catalogo y el del cliente Electron piden 5001, pero ahi vive el clasificador
+# SOAP, que lo tiene fijado en su WSDL, en sus evidencias y en los dos clientes
+# Java y Python. Al Electron se le indica el puerto desde su propio popup de
+# configuracion, asi que ceder el 5001 sale mas barato que mover el SOAP.
+#
+# Ojo con una trampa: este servicio y el clasificador SOAP leen la MISMA
+# variable SOAP_PORT, cada uno desde el .env de su propio directorio. No les des
+# un .env compartido: el segundo en arrancar moriria con "Address already in
+# use" o, peor porque no se nota, el catalogo respondería Faults de SOAP.
+# =============================================================================
+
+[Unit]
+Description=Microservicio de catalogo de la Libreria Online (Flask + PostgreSQL)
+Documentation=file:/opt/udem/libreria/README.md
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pablogcp26
+Group=pablogcp26
+WorkingDirectory=/opt/udem/libreria/services/soap
+
+# ATENCION: ANTES DE HABILITAR ESTE SERVICIO, ETIQUETAR EL ARBOL
+#
+#     sudo restorecon -Rv /opt/udem/libreria/services/soap
+#
+# Es el mismo tropiezo que dio el modulo SOAP: los archivos clonados en el
+# directorio personal y movidos con `mv` conservan la etiqueta user_home_t, y
+# systemd (init_t) no puede ni leer un enlace simbolico con ese tipo. Falla con
+# 203/EXEC y "Permission denied" aunque el binario corra perfectamente a mano.
+# restorecon les devuelve el contexto que toca bajo /opt (usr_t). Es idempotente
+# y hay que repetirlo cada vez que se recree el entorno virtual.
+#
+# Gunicorn y no `python app.py`: el servidor de desarrollo de Flask lo dice el
+# mismo al arrancar, no esta hecho para servir de verdad.
+#
+# DOS workers, al contrario que el modulo SOAP, que esta clavado en uno. Aquel
+# guarda en memoria del proceso los nonces ya usados de WS-Security y con dos
+# workers su proteccion contra reenvios se volveria un colador. Este servicio no
+# guarda NADA en memoria entre peticiones: no hay sesion, no hay cookies, no hay
+# cache: cada peticion se resuelve contra PostgreSQL. Puede replicarse sin
+# consecuencias.
+#
+# El techo de conexiones sale de multiplicar: cada worker abre su propio
+# ThreadedConnectionPool de hasta DB_POOL_MAX (10 por omision), asi que son
+# 2 x 10 = 20 conexiones como maximo, mas las del monolito y las del modulo
+# SOAP. Con el max_connections de PostgreSQL por omision (100) sobra sitio. Si
+# se suben los workers, hay que bajar DB_POOL_MAX en la misma proporcion.
+#
+# Se invoca el interprete con -m gunicorn en lugar del script .venv/bin/gunicorn
+# porque no depende de que el shebang del script de consola siga siendo valido
+# si el venv se mueve. El venv sigue activo: Python detecta pyvenv.cfg a partir
+# de la ruta desde la que se le invoco.
+ExecStart=/opt/udem/libreria/services/soap/.venv/bin/python3 \
+    -m gunicorn \
+    --workers 2 \
+    --threads 8 \
+    --bind 0.0.0.0:5000 \
+    --timeout 30 \
+    --access-logfile - \
+    --error-logfile - \
+    app:app
+
+Restart=on-failure
+RestartSec=5
+
+# El .env lo lee python-dotenv desde el WorkingDirectory. Debe pertenecer al
+# usuario que ejecuta el servicio y tener permisos 600: contiene la contrasena
+# de libreria_app y, si se define, el API_TOKEN de escritura.
+
+# --- Endurecimiento -----------------------------------------------------------
+# Este servicio no escribe un solo archivo en disco: las altas y bajas de libros
+# van a PostgreSQL, y las imagenes las sirve el proxy del monolito. Por eso no
+# lleva ningun ReadWritePaths.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=libreria-catalogo
+
+[Install]
+WantedBy=multi-user.target
