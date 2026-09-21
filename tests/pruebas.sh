@@ -7,11 +7,27 @@
 #     ADMIN_EMAIL=... ADMIN_PASS=... LECTOR_EMAIL=... LECTOR_PASS=... \
 #     bash tests/pruebas.sh
 #
+# BASE_URL LLEVA EL PREFIJO PUBLICO. El script concatena "$BASE_URL/login" sin
+# saber nada de BASE_PATH, asi que en la VM, donde la app publica bajo /library,
+# va http://127.0.0.1:3000/library. Sin el prefijo todo da 404 y, como el script
+# no alcanza a leer el token CSRF de la pagina de login, los POST salen luego
+# con 403: parece un fallo de seguridad y es una URL mal armada.
+#
+# El lector de prueba de los datos de siembra es ana.ruiz@libreria.udem.mx. Las
+# contrasenas no estan en el repositorio; si no se recuerdan, se cambian desde
+# /usuarios como Administrador.
+#
 # Cada prueba imprime ID, descripción, resultado esperado y observado. El script
 # termina con código 1 si alguna falla, para poder encadenarlo.
 #
 # Las credenciales se pasan por variable de entorno, nunca escritas en el
-# archivo: el repositorio es público.
+# archivo: el repositorio es público. Para no dejarlas en ~/.bash_history:
+#
+#     read -sp "admin pass: " A_PASS; echo
+#
+# Ojo con el limitador de intentos de login (auth.controller.js): varias
+# corridas fallidas seguidas acaban en 429 durante 15 minutos. Vive en memoria
+# del proceso, asi que un `systemctl restart libreria` lo borra.
 # =============================================================================
 set -uo pipefail
 

@@ -172,6 +172,14 @@ BASE_URL=http://127.0.0.1:3000 ADMIN_EMAIL=… ADMIN_PASS=… \
 LECTOR_EMAIL=… LECTOR_PASS=… bash tests/pruebas.sh   # desde la raíz del repo
 ```
 
+`BASE_URL` **lleva el prefijo público**: el script concatena `"$BASE_URL/login"`
+y no sabe nada de `BASE_PATH`. En la VM va `http://127.0.0.1:3000/library`; en
+local, sin `BASE_PATH`, sin sufijo. Sin el prefijo todo da 404 y luego 403,
+porque el script no llega a leer el token CSRF — parece un fallo de seguridad y
+es una URL mal armada. El lector de prueba es `ana.ruiz@libreria.udem.mx`. Si
+salen 429, es el limitador de intentos de login: vive en memoria del proceso y
+se borra reiniciando el servicio.
+
 ### Actualizar la VM
 
 El `git pull` solo no basta desde que el monolito se mudó: `npm ci` se corre

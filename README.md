@@ -207,7 +207,7 @@ libreria/
 │   ├── libreria-login.service    Unidad del microservicio de autenticación (5000)
 │   └── libreria-soap.service     Unidad del módulo SOAP de clasificación (5001)
 │
-├── tests/pruebas.sh              57 pruebas ejecutables de la matriz
+├── tests/pruebas.sh              60 pruebas ejecutables de la matriz
 ├── evidencias/                   Capturas de las entregas
 └── docs/                         ver "Documentación del ejercicio"
 ```
@@ -553,7 +553,7 @@ trigger `trg_portada_unica` apaga la anterior automáticamente.
 ## Pruebas
 
 ```bash
-# Aplicación: 57 casos de la matriz
+# Aplicación: 60 casos de la matriz. Desde la raíz del repositorio.
 BASE_URL=http://127.0.0.1:3000 \
 ADMIN_EMAIL='admin@libreria.com' ADMIN_PASS='…' \
 LECTOR_EMAIL='ana.ruiz@libreria.udem.mx' LECTOR_PASS='…' \
@@ -563,8 +563,22 @@ bash tests/pruebas.sh
 psql -U libreria_owner -d libreria_db -f db/03_all_quieries_before_stored_procedures.sql
 ```
 
+> **`BASE_URL` lleva el prefijo público.** El script concatena
+> `"$BASE_URL/login"` y no sabe nada de `BASE_PATH`, así que en la VM —donde la
+> aplicación publica bajo `/library`— va `http://127.0.0.1:3000/library`. En
+> local, sin `BASE_PATH`, va sin sufijo. Si se olvida, todo da 404 y después
+> 403: el script no alcanza a leer el token CSRF de la página de login y manda
+> los POST sin él. Parece un fallo de seguridad y es una URL mal armada.
+
 Las credenciales se pasan por variable de entorno; no están escritas en ningún
-archivo. La matriz completa, con cobertura por requisito, está en
+archivo. Para no dejarlas en `~/.bash_history`, léelas con
+`read -sp "admin pass: " A_PASS`. El lector de los datos de siembra es
+`ana.ruiz@libreria.udem.mx`; si no recuerdas su contraseña, cámbiala desde
+`/usuarios` como Administrador.
+
+Varias corridas fallidas seguidas acaban en **429**: es el limitador de intentos
+de `auth.controller.js`, con ventana de 15 minutos. Vive en memoria del proceso,
+así que `sudo systemctl restart libreria` lo borra. La matriz completa, con cobertura por requisito, está en
 [docs/TEST_PLAN.md](docs/TEST_PLAN.md).
 
 ---
