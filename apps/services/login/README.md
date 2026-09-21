@@ -88,14 +88,33 @@ Lo importante es cómo se interpreta la respuesta:
 fuera a usuarios legítimos cada vez que el otro extremo aplica greylisting,
 tarda, o no se puede alcanzar.
 
+### Dos ajustes de Postfix sin los cuales nada de esto funciona
+
+En una VM de GCP, Postfix se llama a sí mismo `maquina01.localdomain`, no por el
+FQDN de la instancia. Como `mydestination` vale `$myhostname, …`, el dominio
+real de la VM queda fuera y Postfix lo trata como un servidor ajeno: se conecta
+a su propia IP interna y se rechaza solo, porque escucha únicamente en loopback.
+El síntoma es que **todo** devuelve 450 y parece que la verificación no sirve.
+Y después de arreglarlo hay que vaciar la caché, porque los resultados negativos
+se guardan tres horas. Los dos comandos están en
+[`docs/GCP_COMMANDS.md`](../../../docs/GCP_COMMANDS.md) §7b.
+
 ### El límite real de esta instalación
 
 **GCP bloquea la salida por el puerto 25 en las VMs**, y el bloqueo está en la
 red de Google, aguas arriba del firewall: una regla de egress no lo levanta.
 Así que la sonda contra dominios externos siempre devuelve 450 —Postfix lo dice
 literalmente: `Network is unreachable`— y **todo correo externo se registra como
-`no_verificable`**. Lo que sí se verifica de verdad son las direcciones del
-propio dominio y los dominios inexistentes, que se rechazan por DNS.
+`no_verificable`**.
+
+Lo que sí se verifica de verdad, comprobado en la VM:
+
+| Dirección | Respuesta | `/register` |
+|---|---|---|
+| buzón que existe en el dominio de la VM | `250` | 201 `verificado` |
+| buzón inexistente en el dominio de la VM | `550` | **400** |
+| dominio sin DNS | `550` | **400** |
+| cualquier dominio externo | `450` | 201 `no_verificable` |
 
 Y aunque el 25 estuviera abierto, la verificación por SMTP tendría techo: un
 dominio *catch-all* acepta cualquier dirección, así que un `250` tampoco

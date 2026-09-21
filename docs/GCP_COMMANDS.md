@@ -343,6 +343,49 @@ sudo systemctl reload postfix
 - **`*_queue_lifetime = 1h`.** Cada sonda externa deja un mensaje que jamás
   podrá salir, y Postfix lo reintentaría 5 días. Esta VM no manda correo real.
 
+### `myhostname`: sin esto, la verificación local no funciona
+
+En una VM de GCP el nombre que Postfix se da a sí mismo **no** es el FQDN de la
+instancia, sino `maquina01.localdomain`. Como `mydestination` vale
+`$myhostname, localhost.$mydomain, localhost`, el dominio real de la VM
+—`maquina01.<zona>.c.<proyecto>.internal`— queda fuera, y Postfix lo trata como
+un servidor ajeno: intenta conectarse a sí mismo por su IP interna y se rechaza
+solo, porque escucha únicamente en loopback:
+
+```
+Recipient address rejected: unverified address:
+connect to maquina01.<zona>.c.<proyecto>.internal[10.224.0.2]:25: Connection refused
+```
+
+El síntoma es que **todo** devuelve 450 y parece que la verificación no sirve
+para nada. Se arregla diciéndole su nombre verdadero:
+
+```bash
+sudo postconf -e "myhostname = $(hostname -f)"
+sudo systemctl restart postfix
+```
+
+### Y vaciar la caché, o seguirás viendo el error viejo
+
+Postfix guarda los resultados negativos **tres horas**
+(`address_verify_negative_refresh_time`), así que después de arreglar la
+configuración sigue sirviendo el 450 de antes sin volver a intentarlo. Hay que
+borrar su caché —que él regenera solo; no es configuración ni correo—:
+
+```bash
+sudo systemctl stop postfix
+sudo rm -f /var/lib/postfix/verify.lmdb /var/lib/postfix/verify.db
+sudo systemctl start postfix
+```
+
+Con las dos cosas hechas, la sonda distingue de verdad los tres casos:
+
+```
+pablogcp26@maquina01.<zona>.c.<proyecto>.internal  -> 250  buzon local que existe
+noexiste999@maquina01.<zona>.c.<proyecto>.internal -> 550  dominio propio, buzon inexistente
+algo@gmail.com                                     -> 450  no verificable (puerto 25 bloqueado)
+```
+
 ### Comprobarlo
 
 ```bash
@@ -379,8 +422,9 @@ echo "salida: $?"      # 124 = timeout = bloqueado
 Consecuencia real, y conviene decirla en vez de disimularla: **la sonda contra
 dominios externos siempre devuelve 450**, con Postfix diciéndolo literalmente
 (`Network is unreachable`), así que todo correo externo se registra como
-`no_verificable`. Lo que sí se verifica de verdad son las direcciones locales y
-los dominios inexistentes.
+`no_verificable`. Lo que sí se verifica de verdad, y se comprobó en la VM, son
+las direcciones del dominio propio —250 si el buzón existe, 550 si no— y los
+dominios sin DNS, que se rechazan con 550.
 
 `telnet localhost 25` funciona igualmente —es loopback, no pasa por la red de
 Google—, y es la prueba de que Postfix está levantado y acepta el diálogo. Son
