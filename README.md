@@ -207,23 +207,41 @@ desarrollo y bajo `/library` en la VM: las plantillas construyen sus enlaces com
 
 ## Base de datos
 
-Modelo normalizado hasta **4FN**: 7 entidades y 4 tablas puente.
+Modelo normalizado hasta **4FN**: 8 entidades y 4 tablas puente.
+
+> **`usuarios.nombre` es redundante a propósito.** El nombre real vive partido
+> en `personas` (nombre, apellido paterno, apellido materno), que es lo que
+> consume el microservicio de autenticación. La columna plana se conserva
+> porque el monolito Node la lee y la escribe, y no se toca; no puede ser
+> `GENERATED` justamente porque el monolito la escribe. Dos disparadores de
+> [`db/05_triggers.sql`](db/05_triggers.sql) mantienen las dos
+> representaciones en sincronía en ambos sentidos.
 
 ![Modelo ER](docs/DB_DESIGN_ER_4FN.png)
 
 ### Diagrama de relaciones
 
 ```
-usuarios                        autores                 generos
+personas                        autores                 generos
   id (PK)                         id (PK)                 id (PK)
   nombre                          nombre       ┐U         nombre (U)
-  email (U)                       nacionalidad ┘          descripcion
-  password_hash  ← bcrypt         biografia
+  apellido_paterno                nacionalidad ┘          descripcion
+  apellido_materno                biografia
+  ▲ los apellidos admiten NULL
+  │                             categorias              formatos
+  │ 1:1                           id (PK)                 id (PK)
+  │                               nombre (U)              nombre (U)
+usuarios                          descripcion             descripcion
+  id (PK)
+  persona_id (U) → personas(id)   ← UNIQUE: una persona, una cuenta
+  nombre                          ← copia derivada, la mantiene un trigger
+  email (U)
+  password_hash  ← bcrypt
   rol            ← lector | admin
-  activo                        categorias              formatos
-  creado_en                       id (PK)                 id (PK)
-  ▲ índice único parcial          nombre (U)              nombre (U)
-    WHERE rol='admin'             descripcion             descripcion
+  activo
+  creado_en
+  ▲ índice único parcial
+    WHERE rol='admin'
     → como máximo UN admin
 
 libros

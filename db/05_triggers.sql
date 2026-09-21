@@ -157,6 +157,179 @@ CREATE TRIGGER trg_normalizar_email
     BEFORE INSERT OR UPDATE OF email, nombre ON usuarios
     FOR EACH ROW EXECUTE FUNCTION fn_normalizar_email();
 
+-- -----------------------------------------------------------------------------
+-- 7. Sincronizar personas <-> usuarios.nombre
+--
+-- El nombre real vive en `personas`, partido en nombre y dos apellidos.
+-- `usuarios.nombre` se conserva como copia derivada porque el monolito Node lo
+-- lee y lo escribe, y el monolito no se toca. No puede ser una columna
+-- GENERATED: esas son de solo lectura y el monolito hace INSERT y UPDATE sobre
+-- ella. Asi que la coherencia la sostienen estos disparadores, en los dos
+-- sentidos.
+--
+-- Las dos funciones auxiliares viven aqui y no en 04_stored_procedures.sql
+-- porque existen solo para estos triggers: separarlas de su unico consumidor
+-- no ganaria nada y obligaria a leer dos archivos para entender uno.
+--
+-- La recursion se corta sola: cada lado compara con IS DISTINCT FROM antes de
+-- escribir, y un UPDATE que no cambia nada no dispara nada.
+-- -----------------------------------------------------------------------------
+
+-- Compone el nombre completo. concat_ws se salta los NULL, así que "Ana" con
+-- los dos apellidos vacíos sale "Ana" y no "Ana  ".
+CREATE OR REPLACE FUNCTION fn_nombre_completo(
+    p_nombre TEXT, p_paterno TEXT, p_materno TEXT
+) RETURNS TEXT
+LANGUAGE sql IMMUTABLE AS $$
+    SELECT btrim(regexp_replace(
+        concat_ws(' ', btrim(p_nombre), btrim(p_paterno), btrim(p_materno)),
+        '\s+', ' ', 'g'));
+$$;
+
+-- Reparte un nombre suelto. Regla: el último token es el apellido materno, el
+-- penúltimo el paterno, y todo lo anterior es el nombre de pila. Acierta con
+-- "Ana Ruiz", "Ana Ruiz López" y "Ana María Ruiz López"; falla con apellidos
+-- compuestos ("de la Cruz"). Ver el punto ciego de la cabecera.
+CREATE OR REPLACE FUNCTION fn_partir_nombre(p_completo TEXT)
+RETURNS TABLE (nombre TEXT, apellido_paterno TEXT, apellido_materno TEXT)
+LANGUAGE plpgsql IMMUTABLE AS $$
+DECLARE
+    t TEXT[];
+    n INTEGER;
+BEGIN
+    t := regexp_split_to_array(
+             btrim(regexp_replace(coalesce(p_completo, ''), '\s+', ' ', 'g')), ' ');
+    n := array_length(t, 1);
+
+    IF n IS NULL OR t[1] = '' THEN
+        RETURN;                                            -- nada que repartir
+    ELSIF n = 1 THEN
+        RETURN QUERY SELECT t[1], NULL::TEXT, NULL::TEXT;
+    ELSIF n = 2 THEN
+        RETURN QUERY SELECT t[1], t[2], NULL::TEXT;
+    ELSIF n = 3 THEN
+        RETURN QUERY SELECT t[1], t[2], t[3];
+    ELSE
+        RETURN QUERY SELECT array_to_string(t[1:n-2], ' '), t[n-1], t[n];
+    END IF;
+END;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- Los disparadores
+-- -----------------------------------------------------------------------------
+
+-- a) Alta de usuario.
+-- Dos caminos:
+--   · Llega sin persona_id (monolito): se reparte el nombre y se crea la persona.
+--   · Llega con persona_id (microservicio): el nombre plano se DERIVA de la
+--     persona. No se confía en el `nombre` que venga en el INSERT — si se
+--     confiara, un cliente podría dejar las dos representaciones en desacuerdo
+--     desde el minuto cero. Por eso el microservicio puede omitir `nombre`
+--     por completo: el NOT NULL se comprueba después de los BEFORE triggers.
+CREATE OR REPLACE FUNCTION fn_usuario_sincroniza_alta() RETURNS TRIGGER
+LANGUAGE plpgsql AS $$
+DECLARE p RECORD;
+BEGIN
+    IF NEW.persona_id IS NULL THEN
+        SELECT * INTO p FROM fn_partir_nombre(NEW.nombre);
+        IF p.nombre IS NULL THEN
+            RAISE EXCEPTION 'No se puede crear la cuenta sin nombre'
+                USING ERRCODE = 'check_violation';
+        END IF;
+        INSERT INTO personas (nombre, apellido_paterno, apellido_materno)
+        VALUES (p.nombre, p.apellido_paterno, p.apellido_materno)
+        RETURNING id INTO NEW.persona_id;
+    END IF;
+
+    SELECT fn_nombre_completo(nombre, apellido_paterno, apellido_materno)
+      INTO NEW.nombre
+      FROM personas WHERE id = NEW.persona_id;
+
+    RETURN NEW;
+END;
+$$;
+
+-- El nombre del trigger importa: PostgreSQL los dispara en orden alfabético y
+-- 'trg_usuario_…' va después de 'trg_normalizar_email', que es quien recorta
+-- los espacios. Así se reparte un nombre ya normalizado.
+DROP TRIGGER IF EXISTS trg_usuario_sincroniza_alta ON usuarios;
+CREATE TRIGGER trg_usuario_sincroniza_alta
+    BEFORE INSERT ON usuarios
+    FOR EACH ROW EXECUTE FUNCTION fn_usuario_sincroniza_alta();
+
+-- b) El monolito editó usuarios.nombre → repartirlo.
+-- La comparación contra el nombre compuesto actual distingue una edición real
+-- del eco del trigger (c). Sin ella, cada escritura del microservicio volvería a
+-- pasar por la heurística de reparto y podría estropear un dato que ya venía
+-- bien separado.
+CREATE OR REPLACE FUNCTION fn_usuario_nombre_a_persona() RETURNS TRIGGER
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_actual TEXT;
+    p        RECORD;
+BEGIN
+    SELECT fn_nombre_completo(nombre, apellido_paterno, apellido_materno)
+      INTO v_actual
+      FROM personas WHERE id = NEW.persona_id;
+
+    IF NEW.nombre IS DISTINCT FROM v_actual THEN
+        SELECT * INTO p FROM fn_partir_nombre(NEW.nombre);
+        UPDATE personas
+           SET nombre           = p.nombre,
+               apellido_paterno = p.apellido_paterno,
+               apellido_materno = p.apellido_materno
+         WHERE id = NEW.persona_id;
+    END IF;
+    RETURN NULL;                                  -- AFTER: el valor ya no se usa
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_usuario_nombre_a_persona ON usuarios;
+CREATE TRIGGER trg_usuario_nombre_a_persona
+    AFTER UPDATE OF nombre ON usuarios
+    FOR EACH ROW WHEN (NEW.nombre IS DISTINCT FROM OLD.nombre)
+    EXECUTE FUNCTION fn_usuario_nombre_a_persona();
+
+-- c) El microservicio editó la persona → recomponer usuarios.nombre.
+-- El `IS DISTINCT FROM` del WHERE es el que corta la recursión: cuando este
+-- UPDATE dispara (b), el nombre ya coincide y (b) no escribe nada.
+CREATE OR REPLACE FUNCTION fn_persona_a_usuario_nombre() RETURNS TRIGGER
+LANGUAGE plpgsql AS $$
+DECLARE v_completo TEXT;
+BEGIN
+    v_completo := fn_nombre_completo(NEW.nombre, NEW.apellido_paterno, NEW.apellido_materno);
+    UPDATE usuarios
+       SET nombre = v_completo
+     WHERE persona_id = NEW.id
+       AND nombre IS DISTINCT FROM v_completo;
+    RETURN NULL;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_persona_a_usuario_nombre ON personas;
+CREATE TRIGGER trg_persona_a_usuario_nombre
+    AFTER UPDATE ON personas
+    FOR EACH ROW EXECUTE FUNCTION fn_persona_a_usuario_nombre();
+
+-- d) Se borró la cuenta → se va su persona.
+-- La FK apunta de usuarios a personas, así que ON DELETE CASCADE no sirve aquí:
+-- limpiaría en el sentido contrario al que hace falta. El monolito hace
+-- `DELETE FROM usuarios` y no sabe que personas existe; sin este trigger, cada
+-- baja dejaría una fila huérfana.
+CREATE OR REPLACE FUNCTION fn_usuario_baja_persona() RETURNS TRIGGER
+LANGUAGE plpgsql AS $$
+BEGIN
+    DELETE FROM personas WHERE id = OLD.persona_id;
+    RETURN NULL;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_usuario_baja_persona ON usuarios;
+CREATE TRIGGER trg_usuario_baja_persona
+    AFTER DELETE ON usuarios
+    FOR EACH ROW EXECUTE FUNCTION fn_usuario_baja_persona();
+
 -- Inventario de disparadores creados.
 SELECT c.relname AS tabla, t.tgname AS disparador
 FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid

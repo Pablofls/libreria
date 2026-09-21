@@ -29,6 +29,34 @@ DROP TABLE IF EXISTS categorias        CASCADE;
 DROP TABLE IF EXISTS generos           CASCADE;
 DROP TABLE IF EXISTS autores           CASCADE;
 DROP TABLE IF EXISTS usuarios          CASCADE;
+DROP TABLE IF EXISTS personas          CASCADE;
+
+-- -----------------------------------------------------------------------------
+-- personas
+-- Nombre y apellidos de la persona detrás de una cuenta.
+-- Existe porque "nombre" era un campo compuesto: tres datos distintos metidos
+-- en una sola columna. Así no se podía ordenar por apellido ni buscar por el
+-- materno, y el microservicio de autenticación los pide por separado.
+-- Los apellidos admiten NULL: no todo el mundo tiene dos, y no se inventa un
+-- apellido para "Administrador". Que el registro EXIJA los tres es política del
+-- endpoint, no una verdad sobre las personas.
+-- CHECK del largo compuesto: el nombre completo se copia a usuarios.nombre,
+-- que es VARCHAR(100). Sin esto, tres campos de 100 compondrían 302 y el
+-- trigger de sincronización reventaría con un 22001 en mitad de un alta.
+-- -----------------------------------------------------------------------------
+CREATE TABLE personas (
+    id               SERIAL       PRIMARY KEY,
+    nombre           VARCHAR(100) NOT NULL,
+    apellido_paterno VARCHAR(100),
+    apellido_materno VARCHAR(100),
+
+    CONSTRAINT ck_personas_nombre  CHECK (btrim(nombre) <> ''),
+    CONSTRAINT ck_personas_paterno CHECK (apellido_paterno IS NULL OR btrim(apellido_paterno) <> ''),
+    CONSTRAINT ck_personas_materno CHECK (apellido_materno IS NULL OR btrim(apellido_materno) <> ''),
+    CONSTRAINT ck_personas_largo_compuesto CHECK (
+        length(btrim(concat_ws(' ', nombre, apellido_paterno, apellido_materno))) <= 100
+    )
+);
 
 -- -----------------------------------------------------------------------------
 -- usuarios
@@ -37,12 +65,20 @@ DROP TABLE IF EXISTS usuarios          CASCADE;
 --   harían ambiguo el inicio de sesión.
 -- CHECK(rol): la aplicación solo entiende dos roles. "Visitante" NO es un rol
 --   almacenado: es la ausencia de sesión, por eso no aparece aquí.
+-- persona_id: FK 1:1 hacia personas (UNIQUE la hace 1:1, no 1:N). El nombre
+--   real vive allá; esta tabla es la cuenta, no la persona.
+-- nombre: SE CONSERVA como copia derivada del nombre completo. No es
+--   redundancia por descuido: el monolito Node lee y escribe esta columna y no
+--   se toca. No puede ser GENERATED porque el monolito la escribe, y una
+--   columna generada es de sólo lectura. Los disparadores de 05_triggers.sql
+--   mantienen las dos representaciones en sincronía en ambos sentidos.
 -- CHECK(email): validación mínima de formato, además de la del servidor.
 -- La regla de "un solo Administrador" se implementa más abajo con un índice
 --   único parcial + un trigger (05_triggers.sql). Ver ux_usuarios_admin_unico.
 -- -----------------------------------------------------------------------------
 CREATE TABLE usuarios (
     id             SERIAL       PRIMARY KEY,
+    persona_id     INTEGER      NOT NULL,
     nombre         VARCHAR(100) NOT NULL,
     email          VARCHAR(150) NOT NULL,
     password_hash  TEXT         NOT NULL,
@@ -51,6 +87,12 @@ CREATE TABLE usuarios (
     creado_en      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
 
     CONSTRAINT uq_usuarios_email      UNIQUE (email),
+    -- UNIQUE y no sólo FK: sin él dos cuentas compartirían persona y editar el
+    -- nombre de una cambiaría el de la otra.
+    CONSTRAINT uq_usuarios_persona    UNIQUE (persona_id),
+    -- Sin ON DELETE: borrar una persona con cuenta viva se bloquea. La limpieza
+    -- va al revés, con el trigger de baja de 05_triggers.sql.
+    CONSTRAINT fk_usuarios_persona    FOREIGN KEY (persona_id) REFERENCES personas(id),
     CONSTRAINT ck_usuarios_rol        CHECK (rol IN ('lector', 'admin')),
     CONSTRAINT ck_usuarios_email      CHECK (email ~* '^[^@[:space:]]+@[^@[:space:]]+\.[a-z]{2,}$'),
     CONSTRAINT ck_usuarios_nombre     CHECK (btrim(nombre) <> ''),

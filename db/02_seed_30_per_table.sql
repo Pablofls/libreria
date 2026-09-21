@@ -15,45 +15,96 @@ BEGIN;
 
 -- Idempotente: vacia las tablas y reinicia los SERIAL antes de sembrar.
 TRUNCATE libros_conceptos, libros_generos, libros_autores, imagenes_libros,
-         conceptos, libros, formatos, categorias, generos, autores, usuarios
+         conceptos, libros, formatos, categorias, generos, autores, usuarios,
+         personas
     RESTART IDENTITY CASCADE;
 
+-- personas: la persona que hay detras de cada cuenta. Se siembra ANTES que
+-- usuarios porque usuarios.persona_id la referencia.
+--
+-- Los ids van explicitos y no autogenerados: los disparadores que sincronizan
+-- personas con usuarios.nombre se crean en 05_triggers.sql, que corre DESPUES
+-- de este archivo, asi que aqui nadie rellena persona_id por nosotros. Es la
+-- misma clase de detalle que las imagenes con es_portada de mas abajo: el orden
+-- de los scripts canonicos manda, y este archivo se apana solo.
+--
+-- Casi todos los lectores van sin apellido materno, y es deliberado: es
+-- exactamente lo que produce el backfill de
+-- db/applied/20260921-separa-nombre-en-personas.sql sobre los nombres que ya
+-- existen en la VM. Si aqui se inventaran apellidos maternos, una base recreada
+-- desde cero y la base migrada dejarian de parecerse. Las primeras filas con
+-- los tres campos llegan por POST /register del microservicio de login.
+INSERT INTO personas (id, nombre, apellido_paterno, apellido_materno) VALUES
+( 1, 'Administrador', NULL,         NULL),
+( 2, 'Ana',          'Ruiz',       NULL),
+( 3, 'Bruno',        'Salas',      NULL),
+( 4, 'Carla',        'Mendoza',    NULL),
+( 5, 'Diego',        'Fuentes',    NULL),
+( 6, 'Elena',        'Ortiz',      NULL),
+( 7, 'Fabian',       'Rojas',      NULL),
+( 8, 'Gabriela',     'Nunez',      NULL),
+( 9, 'Hector',       'Vidal',      NULL),
+(10, 'Irene',        'Campos',     NULL),
+(11, 'Javier',       'Pena',       NULL),
+(12, 'Karla',        'Espino',     NULL),
+(13, 'Luis',         'Trevino',    NULL),
+(14, 'Marina',       'Cuevas',     NULL),
+(15, 'Nestor',       'Aguilar',    NULL),
+(16, 'Olivia',       'Bravo',      NULL),
+(17, 'Pablo',        'Zamora',     NULL),
+(18, 'Quetzalli',    'Rios',       NULL),
+(19, 'Raul',         'Barrera',    NULL),
+(20, 'Sofia',        'Lugo',       NULL),
+(21, 'Tomas',        'Ibarra',     NULL),
+(22, 'Ursula',       'Nava',       NULL),
+(23, 'Victor',       'Palacios',   NULL),
+(24, 'Wendy',        'Sandoval',   NULL),
+(25, 'Ximena',       'Duarte',     NULL),
+(26, 'Yahir',        'Montes',     NULL),
+(27, 'Zoe',          'Carranza',   NULL),
+(28, 'Adrian',       'Lozano',     NULL),
+(29, 'Beatriz',      'Fierro',     NULL),
+(30, 'Cesar',        'Villalobos', NULL);
+SELECT setval(pg_get_serial_sequence('personas', 'id'), (SELECT max(id) FROM personas));
+
 -- usuarios: 1 administrador (la BD impide un segundo) + 29 lectores.
+-- `nombre` es la copia derivada del nombre completo de la persona; se escribe
+-- a mano por lo mismo que persona_id: los triggers de 05 todavia no existen.
 -- El administrador usa admin@libreria.com; los lectores, un dominio distinto.
 -- No es un descuido: refleja el estado real de la instalacion. El correo del
 -- administrador se cambio desde la interfaz y el seed se alineo con eso, en vez
 -- de al reves, para que este archivo describa lo que de verdad hay en la VM.
-INSERT INTO usuarios (nombre, email, password_hash, rol) VALUES
-('Administrador', 'admin@libreria.com', '$2b$10$c/yES5ffi.7RI/BtxEDfhezl6Sc39xn9JnMyyuGYH3GTtIjXVi.vG', 'admin'),
-('Ana Ruiz', 'ana.ruiz@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
-('Bruno Salas', 'bruno.salas@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
-('Carla Mendoza', 'carla.mendoza@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
-('Diego Fuentes', 'diego.fuentes@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
-('Elena Ortiz', 'elena.ortiz@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
-('Fabian Rojas', 'fabian.rojas@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
-('Gabriela Nunez', 'gabriela.nunez@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
-('Hector Vidal', 'hector.vidal@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
-('Irene Campos', 'irene.campos@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
-('Javier Pena', 'javier.pena@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
-('Karla Espino', 'karla.espino@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
-('Luis Trevino', 'luis.trevino@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
-('Marina Cuevas', 'marina.cuevas@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
-('Nestor Aguilar', 'nestor.aguilar@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
-('Olivia Bravo', 'olivia.bravo@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
-('Pablo Zamora', 'pablo.zamora@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
-('Quetzalli Rios', 'quetzalli.rios@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
-('Raul Barrera', 'raul.barrera@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
-('Sofia Lugo', 'sofia.lugo@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
-('Tomas Ibarra', 'tomas.ibarra@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
-('Ursula Nava', 'ursula.nava@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
-('Victor Palacios', 'victor.palacios@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
-('Wendy Sandoval', 'wendy.sandoval@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
-('Ximena Duarte', 'ximena.duarte@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
-('Yahir Montes', 'yahir.montes@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
-('Zoe Carranza', 'zoe.carranza@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
-('Adrian Lozano', 'adrian.lozano@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
-('Beatriz Fierro', 'beatriz.fierro@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
-('Cesar Villalobos', 'cesar.villalobos@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector');
+INSERT INTO usuarios (persona_id, nombre, email, password_hash, rol) VALUES
+( 1, 'Administrador', 'admin@libreria.com', '$2b$10$c/yES5ffi.7RI/BtxEDfhezl6Sc39xn9JnMyyuGYH3GTtIjXVi.vG', 'admin'),
+( 2, 'Ana Ruiz', 'ana.ruiz@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
+( 3, 'Bruno Salas', 'bruno.salas@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
+( 4, 'Carla Mendoza', 'carla.mendoza@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
+( 5, 'Diego Fuentes', 'diego.fuentes@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
+( 6, 'Elena Ortiz', 'elena.ortiz@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
+( 7, 'Fabian Rojas', 'fabian.rojas@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
+( 8, 'Gabriela Nunez', 'gabriela.nunez@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
+( 9, 'Hector Vidal', 'hector.vidal@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
+(10, 'Irene Campos', 'irene.campos@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
+(11, 'Javier Pena', 'javier.pena@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
+(12, 'Karla Espino', 'karla.espino@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
+(13, 'Luis Trevino', 'luis.trevino@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
+(14, 'Marina Cuevas', 'marina.cuevas@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
+(15, 'Nestor Aguilar', 'nestor.aguilar@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
+(16, 'Olivia Bravo', 'olivia.bravo@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
+(17, 'Pablo Zamora', 'pablo.zamora@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
+(18, 'Quetzalli Rios', 'quetzalli.rios@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
+(19, 'Raul Barrera', 'raul.barrera@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
+(20, 'Sofia Lugo', 'sofia.lugo@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
+(21, 'Tomas Ibarra', 'tomas.ibarra@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
+(22, 'Ursula Nava', 'ursula.nava@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
+(23, 'Victor Palacios', 'victor.palacios@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
+(24, 'Wendy Sandoval', 'wendy.sandoval@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
+(25, 'Ximena Duarte', 'ximena.duarte@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
+(26, 'Yahir Montes', 'yahir.montes@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
+(27, 'Zoe Carranza', 'zoe.carranza@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
+(28, 'Adrian Lozano', 'adrian.lozano@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
+(29, 'Beatriz Fierro', 'beatriz.fierro@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector'),
+(30, 'Cesar Villalobos', 'cesar.villalobos@libreria.udem.mx', '$2b$10$9znBNGqfsAR.ZMwkoGPhlOGE5zkXDuDO/0wA9VRBEP5LcYY1Drr5q', 'lector');
 
 -- autores: 30. UNIQUE(nombre, nacionalidad) impide capturar dos veces al mismo.
 INSERT INTO autores (nombre, biografia, nacionalidad) VALUES
