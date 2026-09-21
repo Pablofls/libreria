@@ -94,7 +94,7 @@ analizado en la sección 12.
 ## 4. Organización del código
 
 ```
-library_soap_service/
+apps/services/soap/
 ├── app.py                 Flask sin Blueprints. Sólo traduce HTTP ↔ SOAP
 ├── config/ajustes.py      Único lector de variables de entorno
 ├── db/acceso.py           Todo el SQL
@@ -428,7 +428,7 @@ directorio personal aunque vivieran en `/opt`. Pasa al clonar en `~` y mover con
 sino devolverle a cada archivo el contexto que le corresponde por su ubicación:
 
 ```bash
-sudo restorecon -Rv /opt/udem/libreria/services/library_soap_service
+sudo restorecon -Rv /opt/udem/libreria/apps/services/soap
 ```
 
 Bajo `/opt` la política define `usr_t`, que systemd sí puede leer y ejecutar. Es

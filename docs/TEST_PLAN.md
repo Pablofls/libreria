@@ -1,5 +1,10 @@
 # Plan de pruebas
 
+> **Rutas.** El repositorio es un monorepo. Las rutas de código del monolito
+> que aparecen aquí (`app.js`, `src/`, `views/`, `middleware/`, `config/`,
+> `services/`, `public/`, `uploads/`) son **relativas a `apps/web-monolito/`**.
+> Lo compartido —`db/`, `deploy/`, `docs/`, `tests/`— sigue en la raíz.
+
 Matriz de pruebas del sistema. Cada caso indica requisito relacionado,
 precondición, entrada, pasos, resultado esperado, resultado observado, estado y
 evidencia.

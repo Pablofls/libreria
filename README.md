@@ -36,10 +36,15 @@ REST ni JSON entre navegador y servidor.
 ## Arranque rápido
 
 ```bash
+cd apps/web-monolito
 npm install
 cp .env.example .env      # y completar DB_PASSWORD y SESSION_SECRET
 npm start                 # → http://127.0.0.1:3000
 ```
+
+Éste es el monolito, la aplicación principal. Los demás procesos del monorepo
+—el cliente Electron y los microservicios de `apps/services/`— se arrancan cada
+uno desde su propia carpeta; ver el README de cada uno.
 
 Genera un `SESSION_SECRET` nuevo con:
 
@@ -85,6 +90,8 @@ Navegador
 
 ### Responsabilidades
 
+Rutas relativas a `apps/web-monolito/`.
+
 | Capa | Archivo | Regla que no se rompe |
 |---|---|---|
 | **Model** | `src/modules/*/​*.model.js` | Todo el SQL, siempre parametrizado. No conoce `req`, `res` ni HTML |
@@ -106,49 +113,81 @@ Las decisiones y sus alternativas están en
 
 ## Estructura de archivos
 
+El repositorio es un **monorepo**: cada aplicación vive bajo `apps/` con sus
+propias dependencias y su propio arranque, y lo que comparten —base de datos,
+despliegue, documentación y pruebas— queda en la raíz.
+
 ```
-ejercicio_guiado2/
-├── app.js                        Arranque de Express, middleware general, montaje de rutas
-├── .env.example                  Nombres de las variables, sin ningún valor real
+libreria/
+├── apps/
+│   ├── web-monolito/             EL MONOLITO Node + Express + EJS (puerto 3000)
+│   │   ├── app.js                Arranque de Express, middleware general, montaje de rutas
+│   │   ├── package.json          Dependencias del monolito. `npm install` se corre AQUÍ
+│   │   ├── .env.example          Nombres de las variables, sin ningún valor real
+│   │   │
+│   │   ├── config/
+│   │   │   ├── env.js            Lee y valida .env; aborta si falta un secreto
+│   │   │   └── db.js             Pool único de PostgreSQL (pg)
+│   │   │
+│   │   ├── middleware/
+│   │   │   ├── auth.js           requireLogin · requireAdmin · requireInvitado
+│   │   │   ├── locals.js         Variables de vista + generación y chequeo de CSRF
+│   │   │   ├── subidas.js        Multer endurecido: tipo, extensión, tamaño y firma
+│   │   │   └── errores.js        404, 500 y traducción de los errores de pg
+│   │   │
+│   │   ├── services/
+│   │   │   ├── validacion.js     Validación server-side de todos los campos
+│   │   │   └── crudCatalogo.js   Lógica común de los cinco catálogos
+│   │   │
+│   │   ├── src/modules/          Un directorio por dominio
+│   │   │   ├── auth/             login, registro, logout
+│   │   │   ├── libros/           CRUD + búsqueda + relaciones N:M
+│   │   │   ├── autores/          CRUD + ficha con sus libros
+│   │   │   ├── generos/          CRUD
+│   │   │   ├── categorias/       CRUD
+│   │   │   ├── formatos/         CRUD
+│   │   │   ├── conceptos/        CRUD del catálogo + definición por libro
+│   │   │   ├── imagenes/         subida, portada, texto alternativo, borrado
+│   │   │   ├── usuarios/         CRUD y roles (sólo Administrador)
+│   │   │   └── panel/            resumen e inventario
+│   │   │       └── cada uno: <n>.model.js · <n>.controller.js · <n>.routes.js
+│   │   │
+│   │   ├── views/                30 plantillas EJS
+│   │   │   ├── parciales/        cabeza · barra · aviso · errores · csrf · pie · confirmar · buscador
+│   │   │   └── auth/ libros/ autores/ catalogo/ conceptos/ imagenes/ usuarios/ panel/ errores/
+│   │   │
+│   │   ├── public/
+│   │   │   ├── css/style.css     Hoja de estilos única
+│   │   │   └── js/app.js         JavaScript de interfaz (sólo comodidad)
+│   │   │
+│   │   └── uploads/              Imágenes subidas. Fuera de public/. No se versiona
+│   │
+│   ├── electron-app/             Cliente de escritorio (Electron) que consume el XML
+│   │   ├── main.js               Proceso principal: ventana y descarga del XML
+│   │   ├── preload.js            Puente aislado hacia el renderer
+│   │   └── renderer/             index.html · estilos.css · renderer.js
+│   │
+│   └── services/                 Microservicios Python, uno por carpeta
+│       ├── catalogo/             Catálogo bilingüe XML/JSON (Flask, 5002)
+│       │   ├── app.py            Servicio completo, una sola app Flask sin Blueprints
+│       │   ├── library.xml       Catálogo de ejemplo con la misma estructura
+│       │   └── library.css       Hoja que el navegador aplica al XML
+│       ├── soap/                 Módulo SOAP de clasificación Cloud (Flask, 5001)
+│       │   ├── app.py            Traduce HTTP ↔ SOAP; la lógica está en soap/
+│       │   ├── soap/             envelope · faults · security (WS-Security) · service
+│       │   ├── wsdl/             Contrato library-classifier.wsdl
+│       │   ├── sql/ db/ config/  SQL propio, acceso a datos y ajustes
+│       │   └── docs/ tests/      Documentación técnica, evidencias y pruebas
+│       └── login/                Autenticación (Flask + Psycopg 3, 5000)
+│           ├── app.py            Servicio completo: rutas, SQL, XML/JSON y Swagger
+│           ├── pruebas.py        84 comprobaciones en proceso, sin BD ni Postfix
+│           └── .env.example      Plantilla de configuración (el .env no se versiona)
 │
-├── config/
-│   ├── env.js                    Lee y valida .env; aborta si falta un secreto
-│   └── db.js                     Pool único de PostgreSQL (pg)
+├── clients/                      Clientes del servicio SOAP
+│   ├── clasificador_python/      Cliente y GUI en Python
+│   └── clasificador_java/        Cliente y GUI en Java
 │
-├── middleware/
-│   ├── auth.js                   requireLogin · requireAdmin · requireInvitado
-│   ├── locals.js                 Variables de vista + generación y chequeo de CSRF
-│   ├── subidas.js                Multer endurecido: tipo, extensión, tamaño y firma
-│   └── errores.js                404, 500 y traducción de los errores de pg
-│
-├── services/
-│   ├── validacion.js             Validación server-side de todos los campos
-│   └── crudCatalogo.js           Lógica común de los cinco catálogos
-│
-├── src/modules/                  Un directorio por dominio
-│   ├── auth/                     login, registro, logout
-│   ├── libros/                   CRUD + búsqueda + relaciones N:M
-│   ├── autores/                  CRUD + ficha con sus libros
-│   ├── generos/                  CRUD
-│   ├── categorias/               CRUD
-│   ├── formatos/                 CRUD
-│   ├── conceptos/                CRUD del catálogo + definición por libro
-│   ├── imagenes/                 subida, portada, texto alternativo, borrado
-│   ├── usuarios/                 CRUD y roles (sólo Administrador)
-│   └── panel/                    resumen e inventario
-│       └── cada uno: <n>.model.js · <n>.controller.js · <n>.routes.js
-│
-├── views/                        30 plantillas EJS
-│   ├── parciales/                cabeza · barra · aviso · errores · csrf · pie · confirmar · buscador
-│   ├── auth/ libros/ autores/ catalogo/ conceptos/ imagenes/ usuarios/ panel/ errores/
-│
-├── public/
-│   ├── css/style.css             Hoja de estilos única
-│   └── js/app.js                 JavaScript de interfaz (sólo comodidad)
-│
-├── uploads/                      Imágenes subidas. Fuera de public/. No se versiona
-│
-├── db/
+├── db/                           Compartida por todas las apps
 │   ├── 00_create_database.sql    Base de datos y roles con privilegios mínimos
 │   ├── 01_schema.sql             Tablas, PK, FK, UNIQUE, CHECK, índices
 │   ├── 02_seed_30_per_table.sql  30 filas por tabla base
@@ -168,19 +207,14 @@ ejercicio_guiado2/
 │   ├── libreria-login.service    Unidad del microservicio de autenticación (5000)
 │   └── libreria-soap.service     Unidad del módulo SOAP de clasificación (5001)
 │
-├── apps/
-│   ├── electron-app/             Cliente de escritorio (Electron) que consume el XML
-│   │   ├── main.js               Proceso principal: ventana y descarga del XML
-│   │   ├── preload.js            Puente aislado hacia el renderer
-│   │   └── renderer/             index.html · estilos.css · renderer.js
-│   └── services/login/           Microservicio de autenticación (Flask + Psycopg 3)
-│       ├── app.py                Servicio completo: rutas, SQL, XML/JSON y Swagger
-│       ├── pruebas.py            84 comprobaciones en proceso, sin BD ni Postfix
-│       └── .env.example          Plantilla de configuración (el .env no se versiona)
-│
 ├── tests/pruebas.sh              57 pruebas ejecutables de la matriz
+├── evidencias/                   Capturas de las entregas
 └── docs/                         ver "Documentación del ejercicio"
 ```
+
+No hay workspaces de npm ni herramienta de monorepo: cada app se instala y se
+arranca desde su propia carpeta. Es deliberado — son cuatro procesos
+independientes que sólo comparten la base de datos, no código.
 
 ---
 
@@ -286,7 +320,7 @@ imagenes_libros
   es_portada         ← índice único parcial: una sola portada por libro
 
 
-──────────────── Tablas del módulo SOAP (services/library_soap_service) ────────
+──────────────── Tablas del módulo SOAP (apps/services/soap) ────────
 Las crea sql/soap_module.sql, NO db/01_schema.sql. No modifican ninguna tabla
 del monolito: sólo la referencian por clave foránea.
 
@@ -346,7 +380,7 @@ El proceso completo, paso a paso desde la relación no normalizada, está en
 | Vista | `v_inventario_por_categoria` | Resumen para el panel |
 
 Objetos del **módulo SOAP**, definidos en
-[`services/library_soap_service/sql/soap_module.sql`](services/library_soap_service/sql/soap_module.sql):
+[`apps/services/soap/sql/soap_module.sql`](apps/services/soap/sql/soap_module.sql):
 
 | Tipo | Nombre | Para qué |
 |---|---|---|
@@ -592,11 +626,11 @@ in use* o, peor porque no se nota, respondería lo que no es.
 ### Microservicio de catálogo
 
 ```bash
-cd /opt/udem/libreria/services/soap
+cd /opt/udem/libreria/apps/services/catalogo
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 cp .env.example .env && chmod 600 .env     # completar DB_PASSWORD y API_TOKEN
 
-sudo restorecon -Rv /opt/udem/libreria/services/soap
+sudo restorecon -Rv /opt/udem/libreria/apps/services/catalogo
 sudo cp /opt/udem/libreria/deploy/libreria-catalogo.service /etc/systemd/system/
 sudo systemctl daemon-reload && sudo systemctl enable --now libreria-catalogo
 systemctl status libreria-catalogo --no-pager -l
@@ -693,7 +727,7 @@ que el servicio no corre o escucha sólo en loopback.
 > `/books/delete` quedan al alcance de cualquiera**, porque corren con el rol
 > `libreria_app`, que sí escribe. Lo único que los protege es `API_TOKEN`, y
 > viene vacío por omisión — el servicio lo avisa en cada arranque. Define uno en
-> `services/soap/.env`, o estrecha la regla a tu IP con
+> `apps/services/catalogo/.env`, o estrecha la regla a tu IP con
 > `gcloud compute firewall-rules update libreria-permitir-catalogo
 > --source-ranges=TU_IP/32`. Lo ideal es lo primero; lo segundo no sobrevive a
 > un cambio de red.
@@ -720,6 +754,9 @@ encenderla vuelven solos, porque las tres unidades están `enabled`.
 ---
 
 ## Agregar un módulo nuevo
+
+Los archivos de código de esta sección viven dentro de `apps/web-monolito/`;
+`db/` sigue en la raíz del monorepo.
 
 Ejemplo: un módulo `editoriales`.
 

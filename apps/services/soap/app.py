@@ -1,7 +1,7 @@
 # =============================================================================
 # app.py — modulo SOAP de clasificacion Cloud de la Libreria Online.
 #
-#     cd services/library_soap_service
+#     cd apps/services/soap
 #     python3 -m venv .venv && source .venv/bin/activate
 #     pip install -r requirements.txt
 #     cp .env.example .env        # y completar EN LA VM

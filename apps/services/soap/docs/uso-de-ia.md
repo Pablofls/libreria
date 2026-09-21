@@ -19,10 +19,10 @@ qué se aceptó, qué se modificó y qué se rechazó. Esta es la bitácora del 
 ## 2. Prompts relevantes
 
 1. *"Crea un archivo XML con la lista de libros según el esquema…"* — generó
-   `services/soap/library.xml` (ejercicio anterior).
-2. *"Genera el CSS para mostrar el catálogo"* — `services/soap/library.css`.
+   `apps/services/catalogo/library.xml` (ejercicio anterior).
+2. *"Genera el CSS para mostrar el catálogo"* — `apps/services/catalogo/library.css`.
 3. *"Escribe un microservicio en Flask (sin Blueprints) con CRUD y Swagger"* —
-   `services/soap/app.py` (ejercicio anterior).
+   `apps/services/catalogo/app.py` (ejercicio anterior).
 4. *"Te paso el PDF del Ejercicio 03; hazlo de la forma en que viene ahí"* —
    este módulo completo.
 

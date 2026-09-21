@@ -43,7 +43,7 @@ contra la base real: crea datos, borra libros de verdad para comprobar que se
 puede, y al final no queda nada.
 
 ```bash
-sudo -u postgres psql -d libreria_db -f services/library_soap_service/tests/regresion_monolito.sql
+sudo -u postgres psql -d libreria_db -f apps/services/soap/tests/regresion_monolito.sql
 ```
 
 | ID | Prueba | Resultado esperado | Obtenido | Estado |

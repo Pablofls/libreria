@@ -3,7 +3,7 @@
 -- Persistencia propia del modulo SOAP de clasificacion Cloud (Ejercicio 03).
 --
 --     sudo -u postgres psql -d libreria_db \
---         -f services/library_soap_service/sql/soap_module.sql
+--         -f apps/services/soap/sql/soap_module.sql
 --
 -- Se ejecuta como SUPERUSUARIO, porque crea un rol y otorga permisos sobre
 -- tablas que no le pertenecen. Al final reasigna sus objetos al mismo dueno que

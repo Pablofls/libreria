@@ -61,7 +61,7 @@ contra la base `library` que ya existe. Puerto **5000**.
 | GET | `/session` | Dice si hay sesión autenticada y de quién |
 | GET | `/health` | Estado del servicio y de PostgreSQL |
 
-Contrato de formato, idéntico al que ya sigue `services/soap/app.py` —léelo y
+Contrato de formato, idéntico al que ya sigue `apps/services/catalogo/app.py` —léelo y
 reaprovecha su enfoque: `?format=json` responde JSON, `?format=xml` o **sin el
 parámetro** responde XML. Aplica a **todos** los endpoints y también a los
 manejadores de error (400, 401, 404, 405, 409, 503 y el `Exception` genérico):
@@ -76,7 +76,7 @@ Cuidado con dos cosas concretas:
   pbkdf2 y la BD lo va a rechazar: usa bcrypt de verdad, compatible con el que
   genera el monolito, para que un usuario registrado aquí pueda entrar allá.
   La contraseña en claro no se guarda, no se registra en logs y no se devuelve.
-- **El puerto 5000.** `services/soap/app.py` usa 5000 por defecto. Confirma que
+- **El puerto 5000.** `apps/services/catalogo/app.py` usa 5000 por defecto. Confirma que
   los dos no se levantan a la vez en la VM o documenta cómo conviven; no lo
   decidas en silencio.
 

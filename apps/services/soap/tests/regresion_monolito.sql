@@ -3,7 +3,7 @@
 -- Comprueba que el modulo SOAP no le rompio nada al monolito.
 --
 --     sudo -u postgres psql -d libreria_db \
---         -f services/library_soap_service/tests/regresion_monolito.sql
+--         -f apps/services/soap/tests/regresion_monolito.sql
 --
 -- POR QUE EXISTE ESTE ARCHIVO
 --   Las 18 pruebas de tests/pruebas_soap.py ejercitan el modulo. Ninguna

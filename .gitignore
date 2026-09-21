@@ -9,9 +9,10 @@ node_modules/
 *.key
 
 # Imágenes subidas en tiempo de ejecución. Las portadas de prueba sí se
-# versionan, pero viven en db/seed_uploads/ y se copian a uploads/ al instalar.
-uploads/*
-!uploads/.gitkeep
+# versionan, pero viven en db/seed_uploads/ y se copian a
+# apps/web-monolito/uploads/ al instalar.
+apps/web-monolito/uploads/*
+!apps/web-monolito/uploads/.gitkeep
 
 # Logs y temporales
 *.log
@@ -23,14 +24,14 @@ npm-debug.log*
 *.sql.gz
 *.dump
 
-# Python (microservicio de services/soap/)
+# Python (microservicio de apps/services/catalogo/)
 __pycache__/
 *.pyc
 .venv/
 venv/
 
 # Reporte web del Ejercicio 03: index.html, css/ y publicar.sh SÍ se versionan.
-# El resto lo genera publicar.sh copiando desde services/library_soap_service/,
+# El resto lo genera publicar.sh copiando desde apps/services/soap/,
 # así que versionarlo duplicaría los documentos y acabarían desincronizados.
 docs/ejercicio03/wsdl/
 docs/ejercicio03/sql/

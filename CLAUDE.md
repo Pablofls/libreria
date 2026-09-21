@@ -1,8 +1,49 @@
 # CLAUDE.md
 
-Librería Online — app monolítica Node.js + Express + **EJS** + PostgreSQL,
-patrón MVC organizado por módulos de dominio.
+Librería Online — **monorepo**. La pieza principal es la app monolítica
+Node.js + Express + **EJS** + PostgreSQL (`apps/web-monolito/`), patrón MVC
+organizado por módulos de dominio; a su lado viven un cliente de escritorio y
+tres microservicios Python que hablan con la misma base.
 Documentación completa en [README.md](README.md).
+
+## Mapa del monorepo
+
+| Ruta | Qué es |
+|---|---|
+| `apps/web-monolito/` | El monolito Node + Express + EJS. Puerto 3000 |
+| `apps/electron-app/` | Cliente de escritorio Electron |
+| `apps/services/catalogo/` | Microservicio Flask de catálogo, bilingüe XML/JSON. Puerto 5002 |
+| `apps/services/soap/` | Microservicio SOAP de clasificación Cloud, con WSDL. Puerto 5001 |
+| `apps/services/login/` | Microservicio Flask de autenticación. Puerto 5000 |
+| `clients/` | Clientes Java y Python del servicio SOAP |
+| `db/` `deploy/` `docs/` `tests/` `evidencias/` | Compartidos por todo el repo: SQL · despliegue · documentación · pruebas · capturas |
+
+Cada app y cada servicio es autónomo: sus dependencias, su `.env` y su unidad
+de systemd son suyos. No comparten código, sólo la base de datos. Antes de
+tocar algo, ubica en qué carpeta de `apps/` vive.
+
+### Al escribir una ruta, ten presente
+
+El monolito vivía en la raíz hasta 2026-09-21. Si algo suena a ruta del
+monolito, va con prefijo — es el error fácil de cometer aquí:
+
+- Las rutas de código del monolito (`app.js`, `src/`, `views/`, `middleware/`,
+  `config/`, `services/`, `public/`, `uploads/`) son **relativas a
+  `apps/web-monolito/`**. Dentro de esa carpeta se escriben tal cual; desde la
+  raíz o desde un documento de `docs/`, con el prefijo completo.
+- `db/`, `deploy/`, `docs/`, `tests/` y `evidencias/` siguen en la raíz y se
+  escriben sin prefijo. `npm` y `node` se ejecutan desde `apps/web-monolito/`;
+  `bash tests/pruebas.sh` y `sudo cp deploy/…`, desde la raíz.
+- Los documentos de `docs/` que vienen de entregas anteriores llevan una nota al
+  inicio aclarando esa relatividad, en vez de tener las rutas reescritas una por
+  una. Si agregas una ruta nueva ahí, escríbela completa.
+- Ojo con el nombre `soap`: `apps/services/soap/` es el **servicio SOAP**
+  (WSDL, 5001), y `apps/services/catalogo/` es el de catálogo XML/JSON (5002),
+  que antes se llamaba `services/soap/`. Al leer historial o documentos viejos,
+  `services/soap` significa el de catálogo.
+- `docs/ejercicio03/publicar.sh` empaqueta `apps/services/soap/` pero conserva
+  el nombre `library_soap_service.tar.gz`: el enlace ya está publicado en
+  `index.html`. No lo renombres.
 
 ## Regla crítica: cambios en la base de datos
 
@@ -49,7 +90,9 @@ resueltos, para no reintroducirlos:
 - `02` siembra imágenes con `es_portada = true` **antes** de que existan los
   triggers de `05`. Es correcto; no muevas el orden.
 
-## Arquitectura
+## Arquitectura del monolito
+
+Las rutas de esta sección son **relativas a `apps/web-monolito/`**.
 
 | Directorio | Responsabilidad |
 |---|---|
@@ -60,7 +103,6 @@ resueltos, para no reintroducirlos:
 | `src/modules/<n>/` | Un dominio: `<n>.model.js` · `<n>.controller.js` · `<n>.routes.js` |
 | `views/` | Plantillas EJS. `views/parciales/` para lo compartido |
 | `public/` `uploads/` | Estáticos · imágenes subidas (fuera de `public/`) |
-| `db/` `deploy/` `docs/` `tests/` | SQL · configuración de despliegue · documentación · pruebas |
 
 Cada módulo de dominio tiene exactamente tres archivos JS:
 
@@ -73,7 +115,7 @@ Cada módulo de dominio tiene exactamente tres archivos JS:
 Las vistas viven en `views/<modulo>/*.ejs`, no dentro del módulo: es donde
 Express las busca y comparten parciales entre dominios.
 
-Un módulo nuevo se registra en [app.js](app.js) con
+Un módulo nuevo se registra en [app.js](apps/web-monolito/app.js) con
 `app.use('/ruta', require('./src/modules/<nombre>/<nombre>.routes'));`.
 
 Al agregar código, sigue el patrón del módulo vecino más parecido en vez de
@@ -114,15 +156,37 @@ introducir estructuras nuevas. Si el módulo es un catálogo simple
 ## Comandos
 
 ```bash
+cd apps/web-monolito
 npm install
 npm start        # → http://127.0.0.1:3000  (node app.js)
 ```
+
+No hay workspaces de npm ni herramienta de monorepo: cada app se instala y se
+arranca desde su propia carpeta. Los servicios Python, cada uno con su `.venv`
+y su `requirements.txt` (ver el README de cada uno).
 
 Pruebas (requieren la app levantada y las credenciales por variable de entorno):
 
 ```bash
 BASE_URL=http://127.0.0.1:3000 ADMIN_EMAIL=… ADMIN_PASS=… \
-LECTOR_EMAIL=… LECTOR_PASS=… bash tests/pruebas.sh
+LECTOR_EMAIL=… LECTOR_PASS=… bash tests/pruebas.sh   # desde la raíz del repo
 ```
+
+### Actualizar la VM
+
+El `git pull` solo no basta desde que el monolito se mudó: `npm ci` se corre
+dentro de `apps/web-monolito/` y la unidad de systemd hay que recopiarla, porque
+su `WorkingDirectory` cambió.
+
+```bash
+cd /opt/udem/libreria && git pull
+cd apps/web-monolito && sudo npm ci --omit=dev
+sudo cp /opt/udem/libreria/deploy/libreria.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl restart libreria
+```
+
+Los `alias` de `uploads/` y `public/` en la configuración del proxy también
+cambiaron: si se sirven imágenes o CSS en 404, es eso. Ver
+[docs/GCP_COMMANDS.md](docs/GCP_COMMANDS.md).
 
 No hay build ni linter. No intentes ejecutarlos.

@@ -1,5 +1,10 @@
 # Registro de decisiones de ingeniería
 
+> **Rutas.** El repositorio es un monorepo. Las rutas de código del monolito
+> que aparecen aquí (`app.js`, `src/`, `views/`, `middleware/`, `config/`,
+> `services/`, `public/`, `uploads/`) son **relativas a `apps/web-monolito/`**.
+> Lo compartido —`db/`, `deploy/`, `docs/`, `tests/`— sigue en la raíz.
+
 Cada decisión sigue el esquema pedido en el enunciado:
 
 > necesidad o problema → alternativas consideradas → decisión tomada →

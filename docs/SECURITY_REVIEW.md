@@ -1,5 +1,10 @@
 # Revisión de seguridad
 
+> **Rutas.** El repositorio es un monorepo. Las rutas de código del monolito
+> que aparecen aquí (`app.js`, `src/`, `views/`, `middleware/`, `config/`,
+> `services/`, `public/`, `uploads/`) son **relativas a `apps/web-monolito/`**.
+> Lo compartido —`db/`, `deploy/`, `docs/`, `tests/`— sigue en la raíz.
+
 Para cada control: **amenaza** que atiende, **control aplicado** (con el archivo
 donde vive) y **evidencia** de que funciona. Al final, los hallazgos abiertos y
 los riesgos residuales aceptados.

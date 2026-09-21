@@ -1,5 +1,10 @@
 # Reporte técnico — Librería Online
 
+> **Rutas.** El repositorio es un monorepo. Las rutas de código del monolito
+> que aparecen aquí (`app.js`, `src/`, `views/`, `middleware/`, `config/`,
+> `services/`, `public/`, `uploads/`) son **relativas a `apps/web-monolito/`**.
+> Lo compartido —`db/`, `deploy/`, `docs/`, `tests/`— sigue en la raíz.
+
 Ejercicio guiado 02 · Integración de Aplicaciones Computacionales · UDEM
 
 Este reporte no describe únicamente lo que se hizo: justifica por qué se decidió

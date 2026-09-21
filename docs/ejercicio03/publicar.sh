@@ -16,7 +16,7 @@ set -euo pipefail
 
 AQUI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RAIZ="$(cd "$AQUI/../.." && pwd)"
-MODULO="$RAIZ/services/library_soap_service"
+MODULO="$RAIZ/apps/services/soap"
 
 echo "Módulo:  $MODULO"
 echo "Destino: $AQUI"
@@ -31,11 +31,13 @@ cp "$MODULO/docs"/*.md                    "$AQUI/docs/"
 cp "$MODULO/docs/evidencias"/*            "$AQUI/evidencias/"
 
 # Código fuente, sin secretos ni artefactos locales.
+# El nombre del .tar.gz no cambia aunque la carpeta se llame ahora
+# apps/services/soap/: el enlace ya está publicado en index.html.
 tar -czf "$AQUI/descargas/library_soap_service.tar.gz" \
-    -C "$RAIZ/services" \
+    -C "$RAIZ/apps/services" \
     --exclude='.env' --exclude='.venv' --exclude='venv' \
     --exclude='__pycache__' --exclude='*.pyc' \
-    library_soap_service
+    soap
 
 echo
 echo "Contenido publicable:"

@@ -25,7 +25,7 @@ Type=simple
 # Ajusta User/Group si despliegas con otra cuenta.
 User=pablogcp26
 Group=pablogcp26
-WorkingDirectory=/opt/udem/libreria
+WorkingDirectory=/opt/udem/libreria/apps/web-monolito
 ExecStart=/usr/bin/node app.js
 Restart=on-failure
 RestartSec=5
@@ -45,7 +45,7 @@ ProtectSystem=strict
 ProtectHome=yes
 ProtectKernelTunables=yes
 ProtectControlGroups=yes
-ReadWritePaths=/opt/udem/libreria/uploads
+ReadWritePaths=/opt/udem/libreria/apps/web-monolito/uploads
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 
 StandardOutput=journal

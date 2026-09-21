@@ -1,5 +1,10 @@
 # Requisitos — Librería Online
 
+> **Rutas.** El repositorio es un monorepo. Las rutas de código del monolito
+> que aparecen aquí (`app.js`, `src/`, `views/`, `middleware/`, `config/`,
+> `services/`, `public/`, `uploads/`) son **relativas a `apps/web-monolito/`**.
+> Lo compartido —`db/`, `deploy/`, `docs/`, `tests/`— sigue en la raíz.
+
 Documento de la **Parte 1** del ejercicio: qué debe hacer el sistema y bajo qué
 condiciones debe operar, escrito **antes** de diseñar la base de datos.
 

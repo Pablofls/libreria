@@ -46,7 +46,7 @@ Aplicación de escritorio → Cliente SOAP → HTTP POST/XML → Módulo SOAP Fl
 ### 1. Base de datos (una sola vez, en la VM)
 
 ```bash
-psql -U libreria_owner -d libreria_db -f services/library_soap_service/sql/soap_module.sql
+psql -U libreria_owner -d libreria_db -f apps/services/soap/sql/soap_module.sql
 ```
 
 Crea las tres tablas propias, cuatro vistas, el procedimiento y el rol
@@ -59,7 +59,7 @@ psql -U postgres -d libreria_db -c "\password libreria_soap"
 ### 2. Servicio
 
 ```bash
-cd services/library_soap_service
+cd apps/services/soap
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env      # y completar DB_PASSWORD y WSSE_SECRETO
@@ -73,7 +73,7 @@ El contrato queda en `http://<host>:5001/soap?wsdl` y el endpoint en
 Gunicorn, y sobrevive a cerrar la sesión y a reiniciar la máquina:
 
 ```bash
-sudo restorecon -Rv services/library_soap_service     # imprescindible, ver abajo
+sudo restorecon -Rv apps/services/soap     # imprescindible, ver abajo
 sudo cp ../../deploy/libreria-soap.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now libreria-soap

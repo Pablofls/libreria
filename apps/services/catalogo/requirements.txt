@@ -1,4 +1,4 @@
-# Microservicio de catalogo (services/soap/app.py).
+# Microservicio de catalogo (apps/services/catalogo/app.py).
 #
 #     python3 -m venv .venv && . .venv/bin/activate
 #     pip install -r requirements.txt

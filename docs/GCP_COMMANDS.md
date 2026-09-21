@@ -83,7 +83,7 @@ gcloud compute firewall-rules create libreria-permitir-https \
 # la máquina del usuario, fuera de la VM, y consume el XML directo; y el
 # microservicio de autenticación se prueba desde fuera con curl y Postman.
 #   5000 -> autenticación (apps/services/login)
-#   5002 -> catálogo XML/JSON (services/soap)
+#   5002 -> catálogo XML/JSON (apps/services/catalogo)
 # El 5001 del módulo SOAP NO se abre: va por túnel SSH.
 gcloud compute firewall-rules create libreria-permitir-microservicios \
   --direction=INGRESS --action=ALLOW --rules=tcp:5000,tcp:5002 \
@@ -113,7 +113,7 @@ El 5002 queda abierto a `0.0.0.0/0`, y hay que asumir lo que implica: el
 catálogo expone `/books/insert`, `/books/update` y `/books/delete` corriendo con
 el rol `libreria_app`, que sí escribe. Lo único que separa esas rutas de
 cualquiera que alcance el puerto es `API_TOKEN`, vacío por omisión. Defínelo en
-`services/soap/.env` antes de dejar la regla abierta, o estrecha la regla a una
+`apps/services/catalogo/.env` antes de dejar la regla abierta, o estrecha la regla a una
 sola IP:
 
 ```bash
@@ -445,12 +445,14 @@ sudo mkdir -p /opt/udem
 cd /opt/udem
 sudo git clone <URL-DEL-REPOSITORIO> libreria
 sudo chown -R "$USER:$USER" /opt/udem/libreria
-cd /opt/udem/libreria
+
+# El repositorio es un monorepo: el monolito Node vive en apps/web-monolito/
+cd /opt/udem/libreria/apps/web-monolito
 sudo npm ci --omit=dev
 
 # Copiar las portadas de prueba al directorio de subidas
 sudo mkdir -p uploads
-sudo cp db/seed_uploads/*.png uploads/
+sudo cp ../../db/seed_uploads/*.png uploads/
 
 # .env: se crea a mano y NUNCA se versiona
 sudo cp .env.example .env
@@ -460,8 +462,8 @@ sudo nano .env        # completar DB_PASSWORD y SESSION_SECRET
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 
 # Permisos: sólo el usuario de la aplicación puede leer el .env
-sudo chmod 600 /opt/udem/libreria/.env
-sudo chmod 750 /opt/udem/libreria/uploads
+sudo chmod 600 /opt/udem/libreria/apps/web-monolito/.env
+sudo chmod 750 /opt/udem/libreria/apps/web-monolito/uploads
 
 # Prueba local antes de publicar
 node app.js
@@ -492,7 +494,9 @@ sudo systemctl reload nginx
 sudo setsebool -P httpd_can_network_connect 1
 
 # Que NGINX pueda leer los archivos subidos
-sudo chcon -R -t httpd_sys_content_t /opt/udem/libreria/uploads /opt/udem/libreria/public
+sudo chcon -R -t httpd_sys_content_t \
+  /opt/udem/libreria/apps/web-monolito/uploads \
+  /opt/udem/libreria/apps/web-monolito/public
 ```
 
 Para Apache en lugar de NGINX, usar `deploy/apache-library.conf` y `httpd`.
@@ -531,7 +535,7 @@ journalctl -u libreria --since "1 hour ago" -p err
 # Actualizar tras un git push
 cd /opt/udem/libreria
 git pull
-sudo npm ci --omit=dev
+cd apps/web-monolito && sudo npm ci --omit=dev
 sudo systemctl restart libreria
 
 # Respaldo de la base de datos

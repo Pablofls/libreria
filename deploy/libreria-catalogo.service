@@ -20,7 +20,7 @@
 #
 #   · El enunciado del catalogo pedia 5001, pero ahi vive el clasificador SOAP,
 #     que lo tiene fijado en su WSDL, en sus evidencias y en sus dos clientes.
-#   · Luego ocupo el 5000, que es el default de services/soap/app.py.
+#   · Luego ocupo el 5000, que es el default de apps/services/catalogo/app.py.
 #   · Y el 5000 lo pide el enunciado del microservicio de autenticacion
 #     (apps/services/login), que no tiene de donde moverse.
 #
@@ -44,11 +44,11 @@ Wants=network-online.target
 Type=simple
 User=pablogcp26
 Group=pablogcp26
-WorkingDirectory=/opt/udem/libreria/services/soap
+WorkingDirectory=/opt/udem/libreria/apps/services/catalogo
 
 # ATENCION: ANTES DE HABILITAR ESTE SERVICIO, ETIQUETAR EL ARBOL
 #
-#     sudo restorecon -Rv /opt/udem/libreria/services/soap
+#     sudo restorecon -Rv /opt/udem/libreria/apps/services/catalogo
 #
 # Es el mismo tropiezo que dio el modulo SOAP: los archivos clonados en el
 # directorio personal y movidos con `mv` conservan la etiqueta user_home_t, y
@@ -77,7 +77,7 @@ WorkingDirectory=/opt/udem/libreria/services/soap
 # porque no depende de que el shebang del script de consola siga siendo valido
 # si el venv se mueve. El venv sigue activo: Python detecta pyvenv.cfg a partir
 # de la ruta desde la que se le invoco.
-ExecStart=/opt/udem/libreria/services/soap/.venv/bin/python3 \
+ExecStart=/opt/udem/libreria/apps/services/catalogo/.venv/bin/python3 \
     -m gunicorn \
     --workers 2 \
     --threads 8 \

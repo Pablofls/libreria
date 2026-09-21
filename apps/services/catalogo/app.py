@@ -1,7 +1,7 @@
 # =============================================================================
 # app.py — microservicio de catalogo de la Libreria Online.
 #
-#     cd services/soap
+#     cd apps/services/catalogo
 #     python3 -m venv .venv && . .venv/bin/activate
 #     pip install -r requirements.txt
 #     cp .env.example .env          # y completa las credenciales EN LA VM
@@ -1298,7 +1298,7 @@ ESPECIFICACION = {
         'description': (
             'Microservicio Flask que expone el catalogo de libros en XML.\n\n'
             'Lee de la misma base PostgreSQL que el monolito (db/01_schema.sql) '
-            'y devuelve la misma estructura que services/soap/library.xml: cada '
+            'y devuelve la misma estructura que apps/services/catalogo/library.xml: cada '
             '`<book>` lleva el ISBN como atributo e incluye titulo, autores, '
             'anio, generos, precio, stock, formato, imagenes y los conceptos '
             'definidos en ese libro con su descripcion.\n\n'
@@ -1541,5 +1541,5 @@ if __name__ == '__main__':
                     'clave. Define API_TOKEN y CORS_ORIGENES en el .env antes '
                     'de exponer este servicio a internet.')
     if not BD['password']:
-        log.warning('DB_PASSWORD viene vacia: revisa services/soap/.env')
+        log.warning('DB_PASSWORD viene vacia: revisa apps/services/catalogo/.env')
     app.run(host=APP_HOST, port=APP_PORT, debug=False)
