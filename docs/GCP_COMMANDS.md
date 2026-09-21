@@ -79,12 +79,16 @@ gcloud compute firewall-rules create libreria-permitir-https \
   --target-tags=https-server --source-ranges=0.0.0.0/0 \
   --description="HTTPS hacia Apache/NGINX"
 
-# Microservicio de catálogo. La segunda y última excepción: el cliente Electron
-# corre en la máquina del usuario, fuera de la VM, y consume el XML directo.
-gcloud compute firewall-rules create libreria-permitir-catalogo \
-  --direction=INGRESS --action=ALLOW --rules=tcp:5000 \
+# Microservicios. La segunda y última excepción: el cliente Electron corre en
+# la máquina del usuario, fuera de la VM, y consume el XML directo; y el
+# microservicio de autenticación se prueba desde fuera con curl y Postman.
+#   5000 -> autenticación (apps/services/login)
+#   5002 -> catálogo XML/JSON (services/soap)
+# El 5001 del módulo SOAP NO se abre: va por túnel SSH.
+gcloud compute firewall-rules create libreria-permitir-microservicios \
+  --direction=INGRESS --action=ALLOW --rules=tcp:5000,tcp:5002 \
   --target-tags=http-server --source-ranges=0.0.0.0/0 \
-  --description="Microservicio de catalogo XML/JSON"
+  --description="Microservicios de autenticacion y catalogo"
 ```
 
 **Una regla por etiqueta sólo sirve si la VM lleva esa etiqueta.** Si no la
@@ -101,11 +105,11 @@ cuenta. El síntoma de olvidarlo es un `curl` que se queda colgado sin responder
 escucha sólo en loopback).
 
 ```bash
-sudo firewall-cmd --add-port=5000/tcp --permanent
+sudo firewall-cmd --add-port=5000/tcp --add-port=5002/tcp --permanent
 sudo firewall-cmd --reload && sudo firewall-cmd --list-ports
 ```
 
-El 5000 queda abierto a `0.0.0.0/0`, y hay que asumir lo que implica: el
+El 5002 queda abierto a `0.0.0.0/0`, y hay que asumir lo que implica: el
 catálogo expone `/books/insert`, `/books/update` y `/books/delete` corriendo con
 el rol `libreria_app`, que sí escribe. Lo único que separa esas rutas de
 cualquiera que alcance el puerto es `API_TOKEN`, vacío por omisión. Defínelo en
@@ -124,6 +128,7 @@ gcloud compute firewall-rules update libreria-permitir-catalogo \
 | 3000 | Node.js | **Debería estar cerrado.** Node escucha en `127.0.0.1`, así que ni abriéndolo se llegaría; se mantendría cerrado igualmente, por tener dos capas. Ver la nota de abajo: hoy no lo está |
 | 5001 | Módulo SOAP | **Cerrado.** `RegistrarClasificacion` escribe en la base, así que no se publica: los clientes Java y Python llegan por un túnel SSH (`gcloud compute ssh maquina01 -- -N -L 5001:127.0.0.1:5001`) |
 | 5432 | PostgreSQL | **Cerrado.** La base sólo acepta conexiones locales. Exponerla a internet sería el error de configuración más caro posible en este proyecto |
+| 25 | Postfix | **Cerrado, y además imposible de abrir hacia fuera.** De entrada no se abre porque un Postfix alcanzable desde internet es un relay abierto; escucha sólo en loopback y sólo lo consulta el microservicio de autenticación. De salida lo bloquea la propia red de Google, aguas arriba del firewall: una regla de egress no lo levanta. Ver §7b |
 | 22 | SSH | Se usa la regla por omisión de la VPC con IAP, o `gcloud compute ssh`, que no requiere abrir el puerto al mundo |
 
 > **Discrepancia pendiente entre esta tabla y la realidad del proyecto.** Un
@@ -287,6 +292,103 @@ WHERE rolname LIKE 'libreria%';
 > Al capturar pantalla de estas salidas, **no incluyas** la columna
 > `password_hash` de `usuarios` ni el contenido de `.env`.
 
+---
+
+## 7b. Postfix, para verificar que los correos existen
+
+Lo usa el microservicio de autenticación: antes de dar de alta a alguien, le
+pregunta a Postfix si la dirección existe. **Nunca envía correo**: abre el
+diálogo SMTP, dice `RCPT TO`, lee el código y cuelga.
+
+```bash
+sudo dnf install -y postfix telnet
+sudo systemctl enable --now postfix
+systemctl is-active postfix && ss -lntp | grep ':25'
+```
+
+Debe escuchar **sólo en loopback** (`127.0.0.1:25` y `[::1]:25`), que es el
+valor por omisión en CentOS. Ni se abre el 25 en el firewall ni se cambia
+`inet_interfaces`: un Postfix alcanzable desde internet es un relay abierto.
+
+### La configuración, y por qué cada línea
+
+```bash
+sudo postconf -e \
+  'smtpd_recipient_restrictions = reject_unknown_recipient_domain, reject_unverified_recipient, permit_mynetworks, reject_unauth_destination' \
+  'address_verify_map = lmdb:$data_directory/verify' \
+  'address_verify_poll_count = 3' \
+  'address_verify_poll_delay = 1s' \
+  'smtp_connect_timeout = 5s' \
+  'unverified_recipient_reject_code = 550' \
+  'unknown_address_reject_code = 550' \
+  'maximal_queue_lifetime = 1h' \
+  'bounce_queue_lifetime = 1h'
+sudo systemctl reload postfix
+```
+
+- **`reject_unverified_recipient` ANTES de `permit_mynetworks`.** Postfix evalúa
+  en orden y se queda con la primera restricción que decide. Con
+  `permit_mynetworks` primero, la sonda —que sale de `127.0.0.1`— quedaría
+  permitida sin verificar nada y Postfix contestaría `250` a cualquier
+  dirección, incluidas las inventadas. Es el error que hace que una
+  verificación *parezca* funcionar sin verificar nada.
+- **`unverified_recipient_reject_code = 550`.** Por omisión vale 450, incluso
+  cuando la sonda **sí** determinó que el buzón no existe. Sin subirlo, el
+  servicio no puede distinguir «no existe» de «no pude comprobarlo».
+- **`unknown_address_reject_code = 550`.** Un dominio sin DNS es un hecho
+  permanente. Los fallos transitorios de DNS siguen dando 4xx por otro camino
+  (`unknown_address_tempfail_action`), así que esto no castiga un hipo de red.
+- **`smtp_connect_timeout = 5s`.** Cada sonda a un dominio externo se queda
+  colgada contra el puerto 25 bloqueado; con el valor por omisión serían 30 s.
+- **`*_queue_lifetime = 1h`.** Cada sonda externa deja un mensaje que jamás
+  podrá salir, y Postfix lo reintentaría 5 días. Esta VM no manda correo real.
+
+### Comprobarlo
+
+```bash
+python3 - <<'SONDA'
+import smtplib
+for addr in ['root@localhost', 'noexiste12345@localhost',
+             'algo@gmail.com', 'algo@dominio-que-no-existe-12345.com']:
+    s = smtplib.SMTP('127.0.0.1', 25, timeout=15)
+    s.ehlo('libreria.local'); s.mail('verificador@localhost')
+    print(f'{addr:45} -> {s.rcpt(addr)}')
+    s.quit()
+SONDA
+```
+
+Las tres respuestas que el servicio traduce a HTTP:
+
+| Respuesta | Significado | Qué hace `/register` |
+|---|---|---|
+| `250` | El buzón existe | Registra, `verificado` |
+| `550` | No existe el buzón o el dominio | **400** |
+| `450` | No se pudo comprobar | Registra, `no_verificable` |
+
+### GCP bloquea la salida por el puerto 25
+
+Y no se puede abrir: el bloqueo está en la red de Google, aguas arriba del
+firewall de la VM. Una regla de egress permitiendo `tcp:25` no lo levanta.
+Compruébalo:
+
+```bash
+timeout 8 bash -c 'exec 3<>/dev/tcp/gmail-smtp-in.l.google.com/25 && head -1 <&3'
+echo "salida: $?"      # 124 = timeout = bloqueado
+```
+
+Consecuencia real, y conviene decirla en vez de disimularla: **la sonda contra
+dominios externos siempre devuelve 450**, con Postfix diciéndolo literalmente
+(`Network is unreachable`), así que todo correo externo se registra como
+`no_verificable`. Lo que sí se verifica de verdad son las direcciones locales y
+los dominios inexistentes.
+
+`telnet localhost 25` funciona igualmente —es loopback, no pasa por la red de
+Google—, y es la prueba de que Postfix está levantado y acepta el diálogo. Son
+dos capas distintas: sólo la de salida está cerrada.
+
+La única forma de verificar buzones ajenos sería un relay SMTP autenticado por
+el puerto 587 (SendGrid, Mailgun…). Sus credenciales irían al `.env` de la VM,
+nunca al repositorio.
 ---
 
 ## 8. Desplegar la aplicación

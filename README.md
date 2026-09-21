@@ -164,13 +164,19 @@ ejercicio_guiado2/
 │   ├── nginx-library.conf        Reverse proxy con NGINX
 │   ├── apache-library.conf       Alternativa con Apache
 │   ├── libreria.service          Unidad de systemd del monolito, con endurecimiento
-│   ├── libreria-catalogo.service Unidad del microservicio de catálogo (5000)
+│   ├── libreria-catalogo.service Unidad del microservicio de catálogo (5002)
+│   ├── libreria-login.service    Unidad del microservicio de autenticación (5000)
 │   └── libreria-soap.service     Unidad del módulo SOAP de clasificación (5001)
 │
-├── apps/electron-app/            Cliente de escritorio (Electron) que consume el XML
-│   ├── main.js                   Proceso principal: ventana y descarga del XML
-│   ├── preload.js                Puente aislado hacia el renderer
-│   └── renderer/                 index.html · estilos.css · renderer.js
+├── apps/
+│   ├── electron-app/             Cliente de escritorio (Electron) que consume el XML
+│   │   ├── main.js               Proceso principal: ventana y descarga del XML
+│   │   ├── preload.js            Puente aislado hacia el renderer
+│   │   └── renderer/             index.html · estilos.css · renderer.js
+│   └── services/login/           Microservicio de autenticación (Flask + Psycopg 3)
+│       ├── app.py                Servicio completo: rutas, SQL, XML/JSON y Swagger
+│       ├── pruebas.py            84 comprobaciones en proceso, sin BD ni Postfix
+│       └── .env.example          Plantilla de configuración (el .env no se versiona)
 │
 ├── tests/pruebas.sh              57 pruebas ejecutables de la matriz
 └── docs/                         ver "Documentación del ejercicio"
@@ -557,29 +563,31 @@ curl -I --max-time 5 http://IP_DEL_SERVIDOR:3000/ # debe fallar
 
 Los comandos completos están en [docs/GCP_COMMANDS.md](docs/GCP_COMMANDS.md).
 
-### Los tres servicios de la VM
+### Los cuatro servicios de la VM
 
-Son tres aplicaciones independientes, cada una con su unidad de systemd, su
+Son cuatro aplicaciones independientes, cada una con su unidad de systemd, su
 propio `.env` y su propio rol de PostgreSQL. Si una se cae, las otras siguen.
 
 | Servicio | Unidad | Puerto | Expuesto a internet |
 |---|---|---|---|
 | Monolito Node (Express + EJS) | `libreria.service` | 3000 | No por diseño: sólo por el proxy, bajo `/library` |
-| Microservicio de catálogo (XML/JSON) | `libreria-catalogo.service` | 5000 | Sí: lo consume el cliente Electron |
+| Microservicio de autenticación | `libreria-login.service` | 5000 | Sí |
 | Módulo SOAP de clasificación | `libreria-soap.service` | 5001 | No: túnel SSH, ver [clients/README.md](clients/README.md) |
+| Microservicio de catálogo (XML/JSON) | `libreria-catalogo.service` | 5002 | Sí: lo consume el cliente Electron |
 
-**Por qué el catálogo está en 5000 y no en 5001.** Los enunciados del catálogo y
-del cliente Electron piden 5001, pero ahí vive el módulo SOAP, que lo tiene
-fijado en el `soap:address` de su WSDL, en sus evidencias ya capturadas y en los
-dos clientes Java y Python. Al Electron, en cambio, se le indica IP y puerto
-desde su propio popup de configuración. Ceder el 5001 sale mucho más barato que
-mover el SOAP. **Al demostrar el Electron hay que escribirle el puerto 5000 en
-ese popup**, o pedirá el catálogo al módulo SOAP y recibirá un `soap:Fault`.
+**El baile de puertos, y por qué el catálogo es el que siempre cede.** El
+módulo SOAP tiene el 5001 escrito en el `soap:address` de su WSDL, en sus
+evidencias ya capturadas y en sus dos clientes Java y Python. El microservicio
+de autenticación tiene el 5000 en su enunciado y no tiene de dónde moverse. El
+catálogo es el único de los tres cuyo puerto **no está escrito en ningún
+contrato**: al cliente Electron se le indica IP y puerto desde su propio popup
+de configuración. Por eso se mudó primero del 5001 al 5000, y ahora del 5000 al
+5002. **Al demostrar el Electron hay que escribirle el puerto 5002 en ese
+popup**, o pedirá el catálogo a quien no es.
 
-**Los dos servicios Python leen la misma variable `SOAP_PORT`**, cada uno desde
-el `.env` de su directorio. No les des un `.env` compartido: el segundo en
-arrancar moriría con *Address already in use* o, peor porque no se nota, el
-catálogo respondería envoltorios de SOAP.
+**Cada servicio Python con su propio `.env`, en su propio directorio.** No los
+compartas ni los enlaces: el segundo en arrancar moriría con *Address already
+in use* o, peor porque no se nota, respondería lo que no es.
 
 ### Microservicio de catálogo
 
@@ -624,6 +632,37 @@ reteniendo el puerto, y el siguiente arranque fallaba con *Address already in
 use*. Con systemd el proceso cuelga de PID 1, vuelve solo tras reiniciar la VM
 (`enabled`) y se relevanta a los 5 segundos si se cae (`Restart=on-failure`).
 
+### Microservicio de autenticación
+
+```bash
+cd /opt/udem/libreria/apps/services/login
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+cp .env.example .env && chmod 600 .env     # completar DB_PASSWORD y SECRET_KEY
+
+sudo restorecon -Rv /opt/udem/libreria/apps/services/login
+sudo cp /opt/udem/libreria/deploy/libreria-login.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now libreria-login
+systemctl status libreria-login --no-pager -l
+```
+
+Mismas trampas que el catálogo —el `restorecon` después del `pip install`, el
+`status` que engaña recién arrancado— más dos propias:
+
+- **Sin `SECRET_KEY` el servicio no arranca**, y es a propósito: es la clave con
+  la que se firman las cookies de sesión. Un valor por omisión en un
+  repositorio público permitiría a cualquiera fabricarse la sesión de cualquier
+  usuario. Genera una con
+  `python3 -c "import secrets; print(secrets.token_urlsafe(48))"`. Cambiarla
+  invalida todas las sesiones abiertas, que es justo lo que se quiere si alguna
+  vez se sospecha que se filtró.
+- **Necesita Postfix levantado** para verificar correos, pero no depende de él
+  para arrancar: `Wants=`, no `Requires=`. Sin Postfix el registro sigue
+  funcionando y `/health` reporta el correo como `degradado`, no como `error`.
+
+El detalle del contrato XML/JSON, de la verificación del correo y de sus
+límites está en
+[`apps/services/login/README.md`](apps/services/login/README.md).
+
 ### Firewall: son dos, no uno
 
 Para publicar un puerto hay que abrirlo en **los dos**, y olvidar el segundo se
@@ -632,19 +671,25 @@ manifiesta como un `curl` que se queda colgado sin responder:
 ```bash
 # 1. GCP. La etiqueta debe coincidir con una que la VM realmente tenga:
 #    gcloud compute instances describe maquina01 --zone ZONA #      --format="value(tags.items.list())"
-gcloud compute firewall-rules create libreria-permitir-catalogo \
-  --direction=INGRESS --action=ALLOW --rules=tcp:5000 \
+gcloud compute firewall-rules create libreria-permitir-microservicios \
+  --direction=INGRESS --action=ALLOW --rules=tcp:5000,tcp:5002 \
   --target-tags=http-server --source-ranges=0.0.0.0/0
 
 # 2. firewalld, dentro de la VM
-sudo firewall-cmd --add-port=5000/tcp --permanent
+sudo firewall-cmd --add-port=5000/tcp --add-port=5002/tcp --permanent
 sudo firewall-cmd --reload && sudo firewall-cmd --list-ports
 ```
+
+> El puerto **25 no se abre**, ni de entrada ni de salida. Postfix escucha sólo
+> en loopback y existe únicamente para que el microservicio de autenticación le
+> pregunte si una dirección existe. Abrirlo lo convertiría en un relay abierto.
+> Y la salida por el 25 no se puede abrir aunque se quiera: el bloqueo está en
+> la red de Google, aguas arriba del firewall de la VM.
 
 Diagnóstico: `curl` colgado sin respuesta es firewall; *connection refused* es
 que el servicio no corre o escucha sólo en loopback.
 
-> **Con el 5000 abierto a `0.0.0.0/0`, `/books/insert`, `/books/update` y
+> **Con el 5002 abierto a `0.0.0.0/0`, `/books/insert`, `/books/update` y
 > `/books/delete` quedan al alcance de cualquiera**, porque corren con el rol
 > `libreria_app`, que sí escribe. Lo único que los protege es `API_TOKEN`, y
 > viene vacío por omisión — el servicio lo avisa en cada arranque. Define uno en

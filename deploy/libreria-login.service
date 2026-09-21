@@ -1,0 +1,100 @@
+# =============================================================================
+# deploy/libreria-login.service
+# Unidad de systemd del microservicio de autenticacion (registro y sesion).
+#
+#     sudo cp deploy/libreria-login.service /etc/systemd/system/
+#     sudo systemctl daemon-reload
+#     sudo systemctl enable --now libreria-login
+#     sudo systemctl status libreria-login
+#     journalctl -u libreria-login -f
+#
+# Sin esto, `python app.py` muere al cerrar la sesion SSH.
+#
+# Es el CUARTO servicio de la VM, independiente de libreria.service (el
+# monolito Node, 3000), libreria-soap.service (el clasificador SOAP, 5001) y
+# libreria-catalogo.service (el catalogo XML/JSON, 5002).
+#
+# PUERTO 5000, que es el que pide el enunciado. Lo ocupaba el catalogo, que se
+# mudo al 5002 por ser el unico de los tres cuyo puerto no esta escrito en
+# ningun contrato. Si se levantan los dos sin haber movido el catalogo, el
+# segundo en arrancar muere con "Address already in use".
+#
+# UN .env POR SERVICIO, en su propio directorio. No compartirlos ni enlazarlos:
+# LOGIN_PORT y SOAP_PORT conviven en variables distintas justamente para que un
+# .env comun no se los pise.
+# =============================================================================
+
+[Unit]
+Description=Microservicio de autenticacion de la Libreria Online (Flask + PostgreSQL + Postfix)
+Documentation=file:/opt/udem/libreria/apps/services/login/README.md
+After=network-online.target postgresql.service postfix.service
+# Postfix en Wants y no en Requires: si el verificador de correo no esta, el
+# registro sigue funcionando y solo deja de poder comprobar la direccion. No es
+# motivo para que el servicio no arranque.
+Wants=network-online.target postfix.service
+
+[Service]
+Type=simple
+User=pablogcp26
+Group=pablogcp26
+WorkingDirectory=/opt/udem/libreria/apps/services/login
+
+# ATENCION: ANTES DE HABILITAR ESTE SERVICIO, ETIQUETAR EL ARBOL
+#
+#     sudo restorecon -Rv /opt/udem/libreria/apps/services/login
+#
+# Es el mismo tropiezo que dieron el modulo SOAP y el catalogo: los archivos
+# clonados en el directorio personal y movidos con `mv` conservan la etiqueta
+# user_home_t, y systemd (init_t) no puede ni leer un enlace simbolico con ese
+# tipo. Falla con 203/EXEC y "Permission denied" aunque el binario corra
+# perfectamente a mano. restorecon les devuelve el contexto que toca bajo /opt
+# (usr_t). Es idempotente y hay que repetirlo cada vez que se recree el venv.
+#
+# Gunicorn y no `python app.py`: el servidor de desarrollo de Flask lo dice el
+# mismo al arrancar, no esta hecho para servir de verdad.
+#
+# DOS workers. Este servicio SI guarda estado entre peticiones —la sesion—,
+# pero no en memoria del proceso: va en una cookie firmada con SECRET_KEY, que
+# los dos workers leen del mismo .env. Por eso puede replicarse sin que a nadie
+# se le caiga la sesion al aterrizar en el otro worker. Si algun dia la sesion
+# pasara a guardarse en memoria, habria que bajar a un worker o sacarla a Redis.
+#
+# --timeout 30 y no menos: un /register hace una sonda SMTP (hasta
+# SMTP_TIMEOUT) mas un hash bcrypt (~100 ms con coste 10). Con un timeout corto,
+# gunicorn mataria altas legitimas mientras Postfix contesta.
+ExecStart=/opt/udem/libreria/apps/services/login/.venv/bin/python3 \
+    -m gunicorn \
+    --workers 2 \
+    --threads 8 \
+    --bind 0.0.0.0:5000 \
+    --timeout 30 \
+    --access-logfile - \
+    --error-logfile - \
+    app:app
+
+Restart=on-failure
+RestartSec=5
+
+# El .env lo lee python-dotenv desde el WorkingDirectory. Debe pertenecer al
+# usuario que ejecuta el servicio y tener permisos 600: lleva la contrasena de
+# libreria_app y la SECRET_KEY con la que se firman las sesiones. Quien lea esa
+# clave puede fabricarse la sesion de cualquier usuario.
+
+# --- Endurecimiento -----------------------------------------------------------
+# No escribe un solo archivo en disco: las cuentas van a PostgreSQL y la sesion
+# viaja en la cookie del cliente. Por eso no lleva ningun ReadWritePaths.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+# AF_INET/AF_INET6 para PostgreSQL y para la sonda a Postfix en 127.0.0.1:25.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=libreria-login
+
+[Install]
+WantedBy=multi-user.target

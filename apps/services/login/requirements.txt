@@ -1,0 +1,27 @@
+# Microservicio de autenticacion (apps/services/login/app.py).
+#
+#     python3 -m venv .venv && . .venv/bin/activate
+#     pip install -r requirements.txt
+#
+# Psycopg 3 y no psycopg2 como el microservicio de catalogo: lo pide el
+# enunciado, y es el sucesor mantenido. La API cambia lo justo (row_factory en
+# vez de cursor_factory, %s igual que siempre) y el pool vive en su propio
+# paquete, psycopg-pool.
+#
+# bcrypt y no el generate_password_hash de Werkzeug: ese produce pbkdf2, y la
+# base rechaza cualquier hash que no case con ck_usuarios_hash_bcrypt. Ademas,
+# usando bcrypt con el mismo coste que el monolito, una cuenta creada aqui
+# puede iniciar sesion alla y al reves.
+#
+# La interfaz de Swagger se carga de un CDN en /docs: no hay dependencia que
+# instalar ni que quede desalineada con la version de Flask.
+#
+# Gunicorn solo para la VM; el servidor de desarrollo de Flask avisa el mismo
+# de que no esta hecho para servir de verdad. Ver deploy/libreria-login.service.
+
+Flask==3.0.3
+psycopg[binary]==3.2.3
+psycopg-pool==3.2.4
+bcrypt==4.2.1
+python-dotenv==1.0.1
+gunicorn==22.0.0
