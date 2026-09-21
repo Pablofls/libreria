@@ -277,20 +277,24 @@ uno con amenaza, control y evidencia. Los que más definen el diseño:
 ## 9. Estrategia de pruebas y resultados
 
 Las pruebas son un script ejecutable, no una lista de capturas:
-[`tests/pruebas.sh`](../tests/pruebas.sh) recorre 57 casos e imprime esperado
+[`tests/pruebas.sh`](../tests/pruebas.sh) recorre 60 casos e imprime esperado
 contra observado. Se puede volver a correr después de cada cambio.
 
 | Bloque | Casos | Resultado |
 |---|---|---|
-| Autenticación y sesión | 10 | 10/10 |
-| Autorización por rol | 14 | 14/14 |
+| Autenticación y sesión | 8 | 8/8 |
+| Autorización por rol | 17 | 17/17 |
 | Búsqueda, XSS e inyección | 5 | 5/5 |
-| CRUD y validación server-side | 10 | 10/10 |
+| CRUD y validación server-side | 8 | 8/8 |
 | Administrador único | 4 | 4/4 |
 | Cabeceras y cookies | 6 | 6/6 |
 | Subida de imágenes | 7 | 7/7 |
+| HTML bien formado | 3 | 3/3 |
 | Cierre de sesión | 2 | 2/2 |
 | Integridad en PostgreSQL (`db/03`) | 7 | 7/7 |
+
+Última ejecución completa: 2026-09-21 en la VM de GCP, tras mover el monolito a
+`apps/web-monolito/`. 60 de 60.
 
 Ocho pruebas manuales (MN-01 … MN-08) cubren lo que no se puede automatizar sin
 navegador: verificación visual del glosario, cambio de portada, panel, acceso
