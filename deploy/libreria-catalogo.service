@@ -10,15 +10,23 @@
 #
 # Sin esto, `python app.py` muere al cerrar la sesion SSH.
 #
-# Es el TERCER servicio de la VM, independiente de libreria.service (el
-# monolito Node, 3000) y de libreria-soap.service (el clasificador SOAP, 5001).
-# Cada uno en su puerto y con su propia unidad: si uno se cae, los otros siguen.
+# Es uno de los cuatro servicios de la VM, independiente de libreria.service
+# (el monolito Node, 3000), de libreria-soap.service (el clasificador SOAP,
+# 5001) y de libreria-login.service (autenticacion, 5000). Cada uno en su
+# puerto y con su propia unidad: si uno se cae, los otros siguen.
 #
-# PUERTO 5000, que es el default de services/soap/app.py. El enunciado del
-# catalogo y el del cliente Electron piden 5001, pero ahi vive el clasificador
-# SOAP, que lo tiene fijado en su WSDL, en sus evidencias y en los dos clientes
-# Java y Python. Al Electron se le indica el puerto desde su propio popup de
-# configuracion, asi que ceder el 5001 sale mas barato que mover el SOAP.
+# PUERTO 5002. Este servicio ha cedido el puerto dos veces, y conviene que
+# quede escrito por que, para que nadie lo "arregle" de vuelta:
+#
+#   · El enunciado del catalogo pedia 5001, pero ahi vive el clasificador SOAP,
+#     que lo tiene fijado en su WSDL, en sus evidencias y en sus dos clientes.
+#   · Luego ocupo el 5000, que es el default de services/soap/app.py.
+#   · Y el 5000 lo pide el enunciado del microservicio de autenticacion
+#     (apps/services/login), que no tiene de donde moverse.
+#
+# Cede este y no los otros porque es el unico cuyo puerto no esta escrito en
+# ningun contrato: al cliente Electron se le indica desde su propio popup de
+# configuracion. ACORDARSE DE ESCRIBIR 5002 AHI AL DEMOSTRARLO.
 #
 # Ojo con una trampa: este servicio y el clasificador SOAP leen la MISMA
 # variable SOAP_PORT, cada uno desde el .env de su propio directorio. No les des
@@ -73,7 +81,7 @@ ExecStart=/opt/udem/libreria/services/soap/.venv/bin/python3 \
     -m gunicorn \
     --workers 2 \
     --threads 8 \
-    --bind 0.0.0.0:5000 \
+    --bind 0.0.0.0:5002 \
     --timeout 30 \
     --access-logfile - \
     --error-logfile - \

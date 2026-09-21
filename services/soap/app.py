@@ -5,7 +5,7 @@
 #     python3 -m venv .venv && . .venv/bin/activate
 #     pip install -r requirements.txt
 #     cp .env.example .env          # y completa las credenciales EN LA VM
-#     python app.py                 # -> http://127.0.0.1:5000/docs
+#     python app.py                 # -> http://127.0.0.1:5002/docs
 #                                   #    (SOAP_PORT=5001 en la VM)
 #
 # Una sola aplicacion Flask, SIN Blueprints, como pide el enunciado. Lee de la
@@ -70,7 +70,10 @@ BD = {
 }
 
 APP_HOST = os.getenv('SOAP_HOST', '0.0.0.0')
-APP_PORT = int(os.getenv('SOAP_PORT', '5000'))
+# 5002: el 5000 lo ocupa el microservicio de autenticacion
+# (apps/services/login) y el 5001 el clasificador SOAP. Ver el comentario
+# de deploy/libreria-catalogo.service, que explica las dos mudanzas.
+APP_PORT = int(os.getenv('SOAP_PORT', '5002'))
 
 # Origenes permitidos, separados por coma. '*' porque el enunciado pide que lo
 # consuman clientes de otro dominio y el servicio no usa cookies ni sesion: no
