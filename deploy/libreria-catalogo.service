@@ -92,7 +92,9 @@ RestartSec=5
 
 # El .env lo lee python-dotenv desde el WorkingDirectory. Debe pertenecer al
 # usuario que ejecuta el servicio y tener permisos 600: contiene la contrasena
-# de libreria_app y, si se define, el API_TOKEN de escritura.
+# de libreria_app, el JWT_SECRET con el que verifica los tokens que emite
+# libreria-login (el MISMO valor en los dos .env) y, si se define, el
+# API_TOKEN de escritura.
 
 # --- Endurecimiento -----------------------------------------------------------
 # Este servicio no escribe un solo archivo en disco: las altas y bajas de libros

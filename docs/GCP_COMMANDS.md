@@ -111,10 +111,14 @@ sudo firewall-cmd --reload && sudo firewall-cmd --list-ports
 
 El 5002 queda abierto a `0.0.0.0/0`, y hay que asumir lo que implica: el
 catálogo expone `/books/insert`, `/books/update` y `/books/delete` corriendo con
-el rol `libreria_app`, que sí escribe. Lo único que separa esas rutas de
-cualquiera que alcance el puerto es `API_TOKEN`, vacío por omisión. Defínelo en
-`apps/services/catalogo/.env` antes de dejar la regla abierta, o estrecha la regla a una
-sola IP:
+el rol `libreria_app`, que sí escribe. Lo que separa esas rutas de cualquiera
+que alcance el puerto es que exigen un JWT válido **con rol `admin`** emitido
+por `/login` (`Authorization: Bearer <token>`) — o, si está definido, la
+`X-API-Key` de `API_TOKEN` como vía alterna. Un JWT válido de un `lector` se
+rechaza igual, con 403. `apps/services/catalogo/.env` necesita `JWT_SECRET`
+(el mismo valor que en `apps/services/login/.env`) para poder verificar esos
+tokens; sin él, el servicio ni arranca. Para acotar aún más, estrecha la
+regla a una sola IP:
 
 ```bash
 gcloud compute firewall-rules update libreria-permitir-catalogo \

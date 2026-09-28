@@ -1,0 +1,290 @@
+{
+  "info": {
+    "name": "Libreria - Proteccion JWT (login -> book)",
+    "description": "Evidencia manual, paso a paso, de que /books/insert, /books/update y /books/delete del microservicio de catalogo exigen un JWT valido con rol admin emitido por /login, y de que las lecturas (GET /books, GET /books/{isbn}) siguen publicas.\n\nCompleta las variables de la coleccion (icono de los tres puntos -> Edit -> Variables) antes de correrla: login_url, catalogo_url, admin_email, admin_pass, lector_email, lector_pass. Corre las peticiones EN ORDEN: la 1 y la 2 guardan el token de admin y de lector en variables de coleccion que las siguientes reutilizan.\n\nEquivalente en Python, con los mismos 13 casos y las mismas ids (JWT-01..JWT-13): tests/pruebas_jwt.py. Usa esta coleccion para las capturas de Postman y ese script para la evidencia de texto.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {"key": "login_url", "value": "http://127.0.0.1:5000"},
+    {"key": "catalogo_url", "value": "http://127.0.0.1:5002"},
+    {"key": "admin_email", "value": ""},
+    {"key": "admin_pass", "value": "", "type": "string"},
+    {"key": "lector_email", "value": ""},
+    {"key": "lector_pass", "value": "", "type": "string"},
+    {"key": "categoria_id", "value": "1"},
+    {"key": "formato_id", "value": "1"},
+    {"key": "isbn_prueba", "value": "9999999999999"},
+    {"key": "token_admin", "value": ""},
+    {"key": "token_lector", "value": ""}
+  ],
+  "item": [
+    {
+      "name": "1. Login admin (emite JWT)",
+      "event": [{
+        "listen": "test",
+        "script": {"exec": [
+          "pm.test('JWT-01: login del admin, 200', function () {",
+          "    pm.response.to.have.status(200);",
+          "});",
+          "const cuerpo = pm.response.json();",
+          "pm.test('JWT-01b: la respuesta trae un token con forma de JWT', function () {",
+          "    pm.expect(cuerpo.token).to.be.a('string');",
+          "    pm.expect(cuerpo.token.split('.').length).to.eql(3);",
+          "});",
+          "if (cuerpo.token) { pm.collectionVariables.set('token_admin', cuerpo.token); }"
+        ]}
+      }],
+      "request": {
+        "method": "POST",
+        "header": [{"key": "Accept", "value": "application/json"}],
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            {"key": "email", "value": "{{admin_email}}"},
+            {"key": "password", "value": "{{admin_pass}}"}
+          ]
+        },
+        "url": {"raw": "{{login_url}}/login?format=json", "host": ["{{login_url}}"], "path": ["login"], "query": [{"key": "format", "value": "json"}]}
+      }
+    },
+    {
+      "name": "2. Login lector (emite JWT)",
+      "event": [{
+        "listen": "test",
+        "script": {"exec": [
+          "pm.test('JWT-02: login del lector, 200', function () {",
+          "    pm.response.to.have.status(200);",
+          "});",
+          "const cuerpo = pm.response.json();",
+          "pm.test('JWT-02b: la respuesta trae un token con forma de JWT', function () {",
+          "    pm.expect(cuerpo.token).to.be.a('string');",
+          "    pm.expect(cuerpo.token.split('.').length).to.eql(3);",
+          "});",
+          "if (cuerpo.token) { pm.collectionVariables.set('token_lector', cuerpo.token); }"
+        ]}
+      }],
+      "request": {
+        "method": "POST",
+        "header": [{"key": "Accept", "value": "application/json"}],
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            {"key": "email", "value": "{{lector_email}}"},
+            {"key": "password", "value": "{{lector_pass}}"}
+          ]
+        },
+        "url": {"raw": "{{login_url}}/login?format=json", "host": ["{{login_url}}"], "path": ["login"], "query": [{"key": "format", "value": "json"}]}
+      }
+    },
+    {
+      "name": "3. GET /books sin token (publico)",
+      "event": [{
+        "listen": "test",
+        "script": {"exec": [
+          "pm.test('JWT-03: GET /books sin token nunca es 401', function () {",
+          "    pm.expect(pm.response.code).to.not.eql(401);",
+          "});"
+        ]}
+      }],
+      "request": {
+        "method": "GET",
+        "header": [{"key": "Accept", "value": "application/json"}],
+        "url": {"raw": "{{catalogo_url}}/books?format=json", "host": ["{{catalogo_url}}"], "path": ["books"], "query": [{"key": "format", "value": "json"}]}
+      }
+    },
+    {
+      "name": "4. GET /books/{isbn} sin token (publico)",
+      "event": [{
+        "listen": "test",
+        "script": {"exec": [
+          "pm.test('JWT-04: GET /books/<isbn> sin token nunca es 401', function () {",
+          "    pm.expect(pm.response.code).to.not.eql(401);",
+          "});"
+        ]}
+      }],
+      "request": {
+        "method": "GET",
+        "header": [{"key": "Accept", "value": "application/json"}],
+        "url": {"raw": "{{catalogo_url}}/books/{{isbn_prueba}}?format=json", "host": ["{{catalogo_url}}"], "path": ["books", "{{isbn_prueba}}"], "query": [{"key": "format", "value": "json"}]}
+      }
+    },
+    {
+      "name": "5. POST /books/insert sin token -> 401",
+      "event": [{
+        "listen": "test",
+        "script": {"exec": [
+          "pm.test('JWT-05: sin token -> 401', function () {",
+          "    pm.response.to.have.status(401);",
+          "});"
+        ]}
+      }],
+      "request": {
+        "method": "POST",
+        "header": [{"key": "Content-Type", "value": "application/json"}, {"key": "Accept", "value": "application/json"}],
+        "body": {"mode": "raw", "raw": "{\n  \"isbn\": \"{{isbn_prueba}}\",\n  \"titulo\": \"Libro de evidencia JWT (borrar)\",\n  \"categoria_id\": {{categoria_id}},\n  \"formato_id\": {{formato_id}},\n  \"precio\": \"1.00\",\n  \"stock\": 0\n}"},
+        "url": {"raw": "{{catalogo_url}}/books/insert?format=json", "host": ["{{catalogo_url}}"], "path": ["books", "insert"], "query": [{"key": "format", "value": "json"}]}
+      }
+    },
+    {
+      "name": "6. POST /books/insert con JWT de lector -> 403",
+      "event": [{
+        "listen": "test",
+        "script": {"exec": [
+          "pm.test('JWT-06: JWT valido pero rol lector -> 403', function () {",
+          "    pm.response.to.have.status(403);",
+          "});"
+        ]}
+      }],
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key": "Content-Type", "value": "application/json"},
+          {"key": "Accept", "value": "application/json"},
+          {"key": "Authorization", "value": "Bearer {{token_lector}}"}
+        ],
+        "body": {"mode": "raw", "raw": "{\n  \"isbn\": \"{{isbn_prueba}}\",\n  \"titulo\": \"Libro de evidencia JWT (borrar)\",\n  \"categoria_id\": {{categoria_id}},\n  \"formato_id\": {{formato_id}},\n  \"precio\": \"1.00\",\n  \"stock\": 0\n}"},
+        "url": {"raw": "{{catalogo_url}}/books/insert?format=json", "host": ["{{catalogo_url}}"], "path": ["books", "insert"], "query": [{"key": "format", "value": "json"}]}
+      }
+    },
+    {
+      "name": "7. POST /books/insert con JWT de admin -> 201",
+      "event": [{
+        "listen": "test",
+        "script": {"exec": [
+          "pm.test('JWT-07: JWT de admin -> 201', function () {",
+          "    pm.response.to.have.status(201);",
+          "});"
+        ]}
+      }],
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key": "Content-Type", "value": "application/json"},
+          {"key": "Accept", "value": "application/json"},
+          {"key": "Authorization", "value": "Bearer {{token_admin}}"}
+        ],
+        "body": {"mode": "raw", "raw": "{\n  \"isbn\": \"{{isbn_prueba}}\",\n  \"titulo\": \"Libro de evidencia JWT (borrar)\",\n  \"categoria_id\": {{categoria_id}},\n  \"formato_id\": {{formato_id}},\n  \"precio\": \"1.00\",\n  \"stock\": 0\n}"},
+        "url": {"raw": "{{catalogo_url}}/books/insert?format=json", "host": ["{{catalogo_url}}"], "path": ["books", "insert"], "query": [{"key": "format", "value": "json"}]}
+      }
+    },
+    {
+      "name": "8. PATCH /books/update/{isbn} con JWT de admin -> 200",
+      "event": [{
+        "listen": "test",
+        "script": {"exec": [
+          "pm.test('JWT-08: PATCH con JWT de admin -> 200', function () {",
+          "    pm.response.to.have.status(200);",
+          "});"
+        ]}
+      }],
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {"key": "Content-Type", "value": "application/json"},
+          {"key": "Accept", "value": "application/json"},
+          {"key": "Authorization", "value": "Bearer {{token_admin}}"}
+        ],
+        "body": {"mode": "raw", "raw": "{\n  \"stock\": 5\n}"},
+        "url": {"raw": "{{catalogo_url}}/books/update/{{isbn_prueba}}?format=json", "host": ["{{catalogo_url}}"], "path": ["books", "update", "{{isbn_prueba}}"], "query": [{"key": "format", "value": "json"}]}
+      }
+    },
+    {
+      "name": "9. PUT /books/update/{isbn} sin token -> 401",
+      "event": [{
+        "listen": "test",
+        "script": {"exec": [
+          "pm.test('JWT-09: PUT sin token -> 401', function () {",
+          "    pm.response.to.have.status(401);",
+          "});"
+        ]}
+      }],
+      "request": {
+        "method": "PUT",
+        "header": [{"key": "Content-Type", "value": "application/json"}, {"key": "Accept", "value": "application/json"}],
+        "body": {"mode": "raw", "raw": "{\n  \"stock\": 9\n}"},
+        "url": {"raw": "{{catalogo_url}}/books/update/{{isbn_prueba}}?format=json", "host": ["{{catalogo_url}}"], "path": ["books", "update", "{{isbn_prueba}}"], "query": [{"key": "format", "value": "json"}]}
+      }
+    },
+    {
+      "name": "10. DELETE /books/delete/{isbn} con JWT de lector -> 403",
+      "event": [{
+        "listen": "test",
+        "script": {"exec": [
+          "pm.test('JWT-10: DELETE con JWT de lector -> 403', function () {",
+          "    pm.response.to.have.status(403);",
+          "});"
+        ]}
+      }],
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {"key": "Accept", "value": "application/json"},
+          {"key": "Authorization", "value": "Bearer {{token_lector}}"}
+        ],
+        "url": {"raw": "{{catalogo_url}}/books/delete/{{isbn_prueba}}?format=json", "host": ["{{catalogo_url}}"], "path": ["books", "delete", "{{isbn_prueba}}"], "query": [{"key": "format", "value": "json"}]}
+      }
+    },
+    {
+      "name": "11. DELETE /books/delete/{isbn} con JWT de admin -> 200 (limpieza)",
+      "event": [{
+        "listen": "test",
+        "script": {"exec": [
+          "pm.test('JWT-11: DELETE con JWT de admin -> 200', function () {",
+          "    pm.response.to.have.status(200);",
+          "});"
+        ]}
+      }],
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {"key": "Accept", "value": "application/json"},
+          {"key": "Authorization", "value": "Bearer {{token_admin}}"}
+        ],
+        "url": {"raw": "{{catalogo_url}}/books/delete/{{isbn_prueba}}?format=json", "host": ["{{catalogo_url}}"], "path": ["books", "delete", "{{isbn_prueba}}"], "query": [{"key": "format", "value": "json"}]}
+      }
+    },
+    {
+      "name": "12. POST /books/insert con JWT forjado alg:none -> 401",
+      "event": [{
+        "listen": "test",
+        "script": {"exec": [
+          "pm.test('JWT-12: alg:none forjado y sin firma -> 401, nunca 201', function () {",
+          "    pm.response.to.have.status(401);",
+          "});"
+        ]}
+      }],
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key": "Content-Type", "value": "application/json"},
+          {"key": "Accept", "value": "application/json"},
+          {"key": "Authorization", "value": "Bearer eyJhbGciOiAibm9uZSIsICJ0eXAiOiAiSldUIn0.eyJzdWIiOiAiMSIsICJlbWFpbCI6ICJhdGFjYW50ZUBldmlsLmNvbSIsICJyb2wiOiAiYWRtaW4iLCAiaXNzIjogImxvZ2luLWxpYnJlcmlhIn0."}
+        ],
+        "body": {"mode": "raw", "raw": "{\n  \"isbn\": \"{{isbn_prueba}}\",\n  \"titulo\": \"Libro de evidencia JWT (borrar)\",\n  \"categoria_id\": {{categoria_id}},\n  \"formato_id\": {{formato_id}},\n  \"precio\": \"1.00\",\n  \"stock\": 0\n}",
+          "description": "El Authorization de esta peticion es un JWT armado a mano: encabezado {\"alg\":\"none\",\"typ\":\"JWT\"} en Base64URL, un payload que dice rol=admin, y NADA despues del segundo punto (sin firma). Es el ataque clasico contra una verificacion que confia en el 'alg' que declara el propio token. jwt.decode(..., algorithms=['HS256']) del lado del catalogo lo rechaza siempre, sin excepcion."},
+        "url": {"raw": "{{catalogo_url}}/books/insert?format=json", "host": ["{{catalogo_url}}"], "path": ["books", "insert"], "query": [{"key": "format", "value": "json"}]}
+      }
+    },
+    {
+      "name": "13. POST /books/insert con Authorization basura -> 401",
+      "event": [{
+        "listen": "test",
+        "script": {"exec": [
+          "pm.test('JWT-13: cabecera con basura -> 401, sin reventar', function () {",
+          "    pm.response.to.have.status(401);",
+          "});"
+        ]}
+      }],
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key": "Content-Type", "value": "application/json"},
+          {"key": "Accept", "value": "application/json"},
+          {"key": "Authorization", "value": "Bearer esto-no-es-un-jwt"}
+        ],
+        "body": {"mode": "raw", "raw": "{\n  \"isbn\": \"{{isbn_prueba}}\",\n  \"titulo\": \"Libro de evidencia JWT (borrar)\",\n  \"categoria_id\": {{categoria_id}},\n  \"formato_id\": {{formato_id}},\n  \"precio\": \"1.00\",\n  \"stock\": 0\n}"},
+        "url": {"raw": "{{catalogo_url}}/books/insert?format=json", "host": ["{{catalogo_url}}"], "path": ["books", "insert"], "query": [{"key": "format", "value": "json"}]}
+      }
+    }
+  ]
+}

@@ -15,9 +15,11 @@ import sys
 import xml.etree.ElementTree as ET
 
 os.environ.setdefault('SECRET_KEY', 'clave-solo-para-las-pruebas-en-proceso')
+os.environ.setdefault('JWT_SECRET', 'otra-clave-solo-para-las-pruebas-en-proceso')
 os.environ.setdefault('VERIFICAR_CORREO', '1')
 
 import app as servicio                                            # noqa: E402
+import jwt                                                        # noqa: E402
 import psycopg                                                    # noqa: E402
 
 # sin_efectos() sustituye servicio.verificar_correo por un doble, asi que la
@@ -227,6 +229,18 @@ galleta = r.headers.get('Set-Cookie', '')
 revisar('HttpOnly' in galleta, 'la cookie es HttpOnly: JavaScript no la lee')
 revisar('SameSite=Lax' in galleta, 'y SameSite=Lax: no viaja desde otro sitio')
 revisar(b'password_hash' not in r.data, 'el hash no sale en la respuesta')
+
+token = json.loads(r.data).get('token')
+revisar(bool(token), 'el login tambien devuelve un JWT')
+reclamos = jwt.decode(token, servicio.JWT_SECRET, algorithms=['HS256'],
+                      issuer='login-libreria')
+revisar(reclamos['sub'] == str(FILA['id']), 'el JWT identifica al usuario', reclamos)
+revisar(reclamos['rol'] == FILA['rol'], 'y lleva su rol', reclamos)
+try:
+    jwt.decode(token, 'una-clave-que-no-es', algorithms=['HS256'])
+    revisar(False, 'un JWT firmado con otra clave deberia rechazarse')
+except jwt.InvalidSignatureError:
+    revisar(True, 'y una firma con otra clave se rechaza')
 
 r = cliente.get('/session?format=json')
 datos = json.loads(r.data)

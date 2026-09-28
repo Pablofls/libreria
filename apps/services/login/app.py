@@ -35,8 +35,10 @@ import re
 import smtplib
 import socket
 import xml.etree.ElementTree as ET
+from datetime import datetime, timedelta, timezone
 
 import bcrypt
+import jwt
 import psycopg
 from dotenv import load_dotenv
 from flask import Flask, Response, request, session, url_for
@@ -91,6 +93,24 @@ if not CLAVE_SESION:
         'VM (python3 -c "import secrets; print(secrets.token_urlsafe(48))"). '
         'El servicio no arranca sin ella: una clave por omision permitiria '
         'falsificar sesiones.')
+
+# Secreto de firma de los JWT que este servicio emite en /login y que
+# apps/services/catalogo verifica en sus escrituras. Es un secreto COMPARTIDO
+# entre los dos .env, no la misma clave que CLAVE_SESION: una firma cookies de
+# sesion de este servicio, la otra tokens que otro servicio debe poder
+# verificar por su cuenta. Igual que SECRET_KEY, sin valor por omision: un
+# default en un repositorio publico dejaria falsificar tokens de escritura del
+# catalogo.
+JWT_SECRET = os.getenv('JWT_SECRET', '').strip()
+if not JWT_SECRET:
+    raise RuntimeError(
+        'Falta JWT_SECRET. Debe ser el mismo valor en el .env de este servicio '
+        'y en el de apps/services/catalogo (python3 -c "import secrets; '
+        'print(secrets.token_urlsafe(48))"). El servicio no arranca sin el: '
+        'sin secreto no hay JWT que firmar.')
+JWT_ALGORITMO = 'HS256'
+JWT_EMISOR = 'login-libreria'
+JWT_EXPIRA_MINUTOS = int(os.getenv('JWT_EXPIRA_MINUTOS', '60'))
 
 app = Flask(__name__)
 app.secret_key = CLAVE_SESION
@@ -207,6 +227,8 @@ def sesion_a_xml(datos):
                       {'autenticada': 'true' if datos['autenticada'] else 'false'})
     if datos.get('usuario'):
         _usuario_a_xml(raiz, datos['usuario'])
+    if datos.get('token'):
+        _hijo(raiz, 'token', datos['token'])
     if datos.get('mensaje'):
         _hijo(raiz, 'mensaje', datos['mensaje'])
     return raiz
@@ -566,6 +588,27 @@ def contrasena_correcta(password, hash_guardado):
 
 
 # =============================================================================
+# JWT. Firmado HS256 con JWT_SECRET, el secreto compartido con el
+# microservicio de catalogo: quien lo tiene puede firmar y verificar, sin
+# consultar a este servicio ni a la base de sesiones. `alg` va fijo en el
+# encabezado —lo pone jwt.encode— y quien verifique debe exigir esa misma
+# lista de algoritmos, nunca aceptarla del token: es la unica forma de que un
+# token con "alg":"none" no se cuele.
+# =============================================================================
+def generar_jwt(usuario):
+    ahora = datetime.now(timezone.utc)
+    payload = {
+        'sub': str(usuario['id']),
+        'email': usuario['email'],
+        'rol': usuario['rol'],
+        'iss': JWT_EMISOR,
+        'iat': ahora,
+        'exp': ahora + timedelta(minutes=JWT_EXPIRA_MINUTOS),
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITMO)
+
+
+# =============================================================================
 # Endpoints
 # =============================================================================
 @app.route('/register', methods=['POST'])
@@ -627,6 +670,7 @@ def iniciar_sesion():
 
     log.info('Sesion iniciada para el usuario %s', usuario['id'])
     return responder('sesion', {'autenticada': True, 'usuario': usuario,
+                                'token': generar_jwt(usuario),
                                 'mensaje': 'Sesion iniciada.'})
 
 
@@ -908,19 +952,25 @@ ESPECIFICACION = {
             'summary': 'Autenticar al usuario e iniciar sesion',
             'description': (
                 'Compara la contrasena contra el hash bcrypt guardado y, si '
-                'coincide, abre una sesion del lado de Flask: una cookie '
-                'firmada, HttpOnly y SameSite=Lax. Correo desconocido, '
-                'contrasena incorrecta y cuenta desactivada devuelven el mismo '
-                '401, para no convertir el endpoint en un comprobador de que '
-                'correos tienen cuenta.'),
+                'coincide, abre una sesion del lado de Flask (cookie firmada, '
+                'HttpOnly y SameSite=Lax) Y ADEMAS devuelve un JWT firmado '
+                'HS256, valido por JWT_EXPIRA_MINUTOS minutos. Ese token es el '
+                'que exige apps/services/catalogo para insertar, actualizar o '
+                'borrar libros: se manda como `Authorization: Bearer <token>`. '
+                'Correo desconocido, contrasena incorrecta y cuenta '
+                'desactivada devuelven el mismo 401, para no convertir el '
+                'endpoint en un comprobador de que correos tienen cuenta.'),
             'requestBody': CUERPO_LOGIN,
             'responses': {
                 '200': _respuesta(
-                    'Sesion iniciada. La cookie de sesion viaja en Set-Cookie.',
+                    'Sesion iniciada. La cookie de sesion viaja en Set-Cookie '
+                    'y el JWT va tambien en el cuerpo, en `token`.',
                     '<?xml version="1.0" encoding="UTF-8"?>\n<sesion autenticada="true">\n'
                     + '\n'.join('  ' + l for l in EJEMPLO_USUARIO_XML.split('\n'))
-                    + '\n  <mensaje>Sesion iniciada.</mensaje>\n</sesion>',
+                    + '\n  <token>eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...</token>'
+                      '\n  <mensaje>Sesion iniciada.</mensaje>\n</sesion>',
                     {'autenticada': True, 'usuario': EJEMPLO_USUARIO_JSON,
+                     'token': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
                      'mensaje': 'Sesion iniciada.'}),
                 '400': _error('Faltan el correo o la contrasena.', 400,
                               'Faltan el correo o la contrasena.'),

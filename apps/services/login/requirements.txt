@@ -13,6 +13,9 @@
 # usando bcrypt con el mismo coste que el monolito, una cuenta creada aqui
 # puede iniciar sesion alla y al reves.
 #
+# PyJWT firma los tokens que /login emite y que apps/services/catalogo
+# verifica en sus escrituras, con el secreto compartido JWT_SECRET.
+#
 # La interfaz de Swagger se carga de un CDN en /docs: no hay dependencia que
 # instalar ni que quede desalineada con la version de Flask.
 #
@@ -23,5 +26,6 @@ Flask==3.0.3
 psycopg[binary]==3.2.3
 psycopg-pool==3.2.4
 bcrypt==4.2.1
+PyJWT==2.9.0
 python-dotenv==1.0.1
 gunicorn==22.0.0

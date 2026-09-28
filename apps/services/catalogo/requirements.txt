@@ -6,6 +6,9 @@
 # La interfaz de Swagger se carga desde un CDN en /docs: no hay dependencia de
 # swagger que instalar ni que quede desalineada con la version de Flask.
 #
+# PyJWT verifica los JWT que apps/services/login emite en /login, con el
+# secreto compartido JWT_SECRET: es lo que exige insert/update/delete.
+#
 # Gunicorn solo sirve para desplegar en la VM: el servidor de desarrollo de
 # Flask avisa el mismo de que no esta hecho para servir de verdad. En local,
 # `python app.py` sigue bastando. Ver deploy/libreria-catalogo.service.
@@ -13,5 +16,6 @@
 Flask==3.0.3
 Flask-Cors==4.0.1
 psycopg2-binary==2.9.10
+PyJWT==2.9.0
 python-dotenv==1.0.1
 gunicorn==22.0.0

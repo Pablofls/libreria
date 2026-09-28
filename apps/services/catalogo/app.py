@@ -37,6 +37,7 @@ from contextlib import contextmanager
 from decimal import Decimal, InvalidOperation
 from xml.etree import ElementTree as ET
 
+import jwt
 import psycopg2
 from psycopg2 import errors as pgerrors
 from psycopg2.extras import RealDictCursor
@@ -80,11 +81,41 @@ APP_PORT = int(os.getenv('SOAP_PORT', '5002'))
 # hay nada que un origen ajeno pueda robar del navegador de un tercero.
 ORIGENES = [o.strip() for o in os.getenv('CORS_ORIGENES', '*').split(',') if o.strip()]
 
-# Candado OPCIONAL de escritura. Si API_TOKEN esta vacio, insert/update/delete
-# quedan abiertos a cualquiera que alcance el puerto: comodo para la practica,
-# inaceptable en un servicio expuesto. Con la variable puesta, las escrituras
-# exigen la cabecera X-API-Key. El valor vive en el .env, nunca aqui.
+# Candado de escritura. insert/update/delete exigen SIEMPRE uno de los dos:
+#
+#   - Un JWT valido emitido por apps/services/login en /login, mandado como
+#     `Authorization: Bearer <token>`, Y ADEMAS con rol "admin" (ver
+#     ROL_ESCRITURA mas abajo). Es el mecanismo por omision: un JWT valido de
+#     un lector se rechaza igual que uno invalido, solo que con 403 y no 401.
+#   - La cabecera X-API-Key, si el servicio arranco con API_TOKEN definido:
+#     una via de servicio a servicio para scripts y pruebas que no pasan por
+#     login, sin concepto de rol. Sigue siendo opcional; el JWT no lo es.
+#
+# A diferencia de versiones anteriores, dejar API_TOKEN vacio YA NO abre las
+# escrituras: sin X-API-Key configurada, solo queda el JWT, que es obligatorio
+# por la validacion de JWT_SECRET mas abajo.
 API_TOKEN = os.getenv('API_TOKEN', '').strip()
+
+# Secreto con el que apps/services/login firma los JWT que aqui se verifican.
+# Debe ser EL MISMO VALOR que JWT_SECRET en su .env (apps/services/login/.env):
+# es un secreto compartido, no una clave propia de este servicio. Sin valor
+# por omision y el servicio no arranca sin el, igual que SECRET_KEY en login:
+# un default en un repositorio publico dejaria falsificar tokens de escritura.
+JWT_SECRET = os.getenv('JWT_SECRET', '').strip()
+if not JWT_SECRET:
+    raise RuntimeError(
+        'Falta JWT_SECRET. Debe ser el mismo valor en el .env de este servicio '
+        'y en el de apps/services/login (python3 -c "import secrets; '
+        'print(secrets.token_urlsafe(48))"). El servicio no arranca sin el: '
+        'sin secreto no hay forma de verificar los JWT que login emite, y las '
+        'escrituras se quedarian sin proteccion real.')
+
+# Lista blanca de algoritmos aceptados, nunca vacia y nunca tomada del propio
+# token: jwt.decode() con `algorithms` explicito es lo que impide el ataque
+# clasico de mandar un JWT con encabezado {"alg":"none"} y sin firma. login
+# firma en HS256 (JWT_ALGORITMO en su app.py); aqui se exige exactamente eso.
+JWT_ALGORITMOS = ['HS256']
+JWT_EMISOR = 'login-libreria'
 
 # Hoja de estilos con la que el navegador dibuja el XML.
 HOJA_ESTILOS = os.getenv('SOAP_HOJA_ESTILOS', '/library.css')
@@ -97,8 +128,8 @@ CORS(
                r'/books': {'origins': ORIGENES},
                r'/books/*': {'origins': ORIGENES},
                r'/health': {'origins': ORIGENES}},
-    methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allow_headers=['Content-Type', 'X-API-Key'],
+    methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allow_headers=['Content-Type', 'Authorization', 'X-API-Key'],
     max_age=86400,
 )
 
@@ -842,10 +873,72 @@ def datos_entrantes():
     return datos
 
 
-def escritura_autorizada():
+# Rol que exige el JWT para escribir. No basta con que el token sea valido:
+# un lector autenticado sigue sin poder insertar, actualizar ni borrar.
+ROL_ESCRITURA = 'admin'
+
+
+def _token_portador():
+    """Extrae el JWT de `Authorization: Bearer <token>`; None si no viene asi."""
+    cabecera = request.headers.get('Authorization', '')
+    if not cabecera.startswith('Bearer '):
+        return None
+    return cabecera[len('Bearer '):].strip() or None
+
+
+def _reclamos_jwt():
+    """Verifica firma, emisor y expiracion del JWT de login; devuelve sus
+    reclamos (dict) si es valido, o None en cualquier otro caso.
+
+    `algorithms` va fijo en JWT_ALGORITMOS: jwt.decode() nunca confia en el
+    "alg" que declara el propio token, asi que un JWT con {"alg":"none"} o
+    firmado con otro algoritmo se rechaza aqui, no despues.
+    """
+    token = _token_portador()
+    if not token:
+        return None
+    try:
+        return jwt.decode(token, JWT_SECRET, algorithms=JWT_ALGORITMOS,
+                          issuer=JWT_EMISOR)
+    except jwt.PyJWTError:
+        return None
+
+
+def _clave_api_valida():
+    """X-API-Key, solo si el servicio tiene API_TOKEN configurado. Es un
+    secreto de servicio a servicio, no de un usuario: no lleva rol, y por
+    eso autoriza sin pasar por la comprobacion de ROL_ESCRITURA."""
     if not API_TOKEN:
-        return True
+        return False
     return hmac.compare_digest(request.headers.get('X-API-Key', ''), API_TOKEN)
+
+
+def verificar_escritura():
+    """Autoriza la escritura o explica por que no.
+
+    Devuelve (autorizado, codigo, mensaje, detalles). Dos motivos de rechazo
+    distintos, con su propio codigo:
+
+      - 401: no hay credencial utilizable (ni JWT valido, ni X-API-Key valida).
+      - 403: el JWT es valido pero su rol no es ROL_ESCRITURA. El token
+        prueba quien es, no que pueda escribir.
+
+    La X-API-Key configurada autoriza sin mirar rol (ver _clave_api_valida).
+    """
+    if _clave_api_valida():
+        return True, None, None, None
+
+    reclamos = _reclamos_jwt()
+    if reclamos is None:
+        return False, 401, 'Esta operacion requiere autenticacion.', [
+            'Manda un JWT valido de login: Authorization: Bearer <token>.',
+            'O, si el servicio la tiene configurada, la clave X-API-Key.']
+
+    if reclamos.get('rol') != ROL_ESCRITURA:
+        return False, 403, 'Esta operacion requiere el rol administrador.', [
+            'El JWT es valido, pero su rol no es "{}".'.format(ROL_ESCRITURA)]
+
+    return True, None, None, None
 
 
 def sincronizar_relacion(cur, tabla, columna, libro_id, ids, con_orden=False):
@@ -1021,8 +1114,9 @@ def libros_por_autor(author_id):
 @app.route('/books/insert', methods=['POST'])
 @app.route('/api/book/insert', methods=['POST'])
 def insertar_libro():
-    if not escritura_autorizada():
-        return error_respuesta(401, 'Esta operacion requiere una clave de escritura.')
+    autorizado, codigo, mensaje, detalles = verificar_escritura()
+    if not autorizado:
+        return error_respuesta(codigo, mensaje, detalles)
 
     datos = datos_entrantes()
     limpio, errores = validar_libro(datos, parcial=False)
@@ -1061,13 +1155,14 @@ def insertar_libro():
     return responder_catalogo([libro], estado=201)
 
 
-@app.route('/books/update', methods=['PUT', 'POST'])
-@app.route('/books/update/<isbn>', methods=['PUT', 'POST'])
-@app.route('/api/book/update', methods=['PUT', 'POST'])
-@app.route('/api/book/update/<isbn>', methods=['PUT', 'POST'])
+@app.route('/books/update', methods=['PUT', 'PATCH', 'POST'])
+@app.route('/books/update/<isbn>', methods=['PUT', 'PATCH', 'POST'])
+@app.route('/api/book/update', methods=['PUT', 'PATCH', 'POST'])
+@app.route('/api/book/update/<isbn>', methods=['PUT', 'PATCH', 'POST'])
 def actualizar_libro(isbn=None):
-    if not escritura_autorizada():
-        return error_respuesta(401, 'Esta operacion requiere una clave de escritura.')
+    autorizado, codigo, mensaje, detalles = verificar_escritura()
+    if not autorizado:
+        return error_respuesta(codigo, mensaje, detalles)
 
     datos = datos_entrantes()
     objetivo = (isbn or datos.get('isbn') or '').strip()
@@ -1126,8 +1221,9 @@ def actualizar_libro(isbn=None):
 @app.route('/api/book/delete', methods=['DELETE', 'POST'])
 @app.route('/api/book/delete/<isbn>', methods=['DELETE', 'POST'])
 def borrar_libro(isbn=None):
-    if not escritura_autorizada():
-        return error_respuesta(401, 'Esta operacion requiere una clave de escritura.')
+    autorizado, codigo, mensaje, detalles = verificar_escritura()
+    if not autorizado:
+        return error_respuesta(codigo, mensaje, detalles)
 
     datos = datos_entrantes()
     objetivo = (isbn or datos.get('isbn') or request.args.get('isbn') or '').strip()
@@ -1290,6 +1386,11 @@ def _cuerpo(esquema):
                         'application/x-www-form-urlencoded': {'schema': esquema}}}
 
 
+# Cualquiera de los dos basta (OR, no AND): un JWT de login o, si esta
+# configurada, la X-API-Key de servicio. Referenciado por 'security' en cada
+# operacion de escritura, no declarado global: las lecturas siguen publicas.
+SEGURIDAD_ESCRITURA = [{'JWTLogin': []}, {'ClaveEscritura': []}]
+
 ESPECIFICACION = {
     'openapi': '3.0.3',
     'info': {
@@ -1399,21 +1500,24 @@ ESPECIFICACION = {
         '/api/book/insert': {'post': {
             'tags': ['Escritura'],
             'summary': 'Registra un libro nuevo',
+            'security': SEGURIDAD_ESCRITURA,
             'requestBody': _cuerpo(ESQUEMA_LIBRO),
             'responses': {'201': RESPUESTA_CATALOGO, '400': RESPUESTA_ERROR,
-                          '401': RESPUESTA_ERROR, '409': RESPUESTA_ERROR},
+                          '401': RESPUESTA_ERROR, '403': RESPUESTA_ERROR,
+                          '409': RESPUESTA_ERROR},
         }},
         '/api/book/update': {'put': {
             'tags': ['Escritura'],
             'summary': 'Modifica un libro existente',
             'description': 'Actualiza solo los campos enviados. Si se mandan '
                            '`autores` o `generos`, reemplazan por completo a los '
-                           'anteriores. Tambien acepta POST y '
+                           'anteriores. Tambien acepta PATCH, POST y '
                            '/api/book/update/{isbn}.',
+            'security': SEGURIDAD_ESCRITURA,
             'requestBody': _cuerpo(ESQUEMA_LIBRO_PARCIAL),
             'responses': {'200': RESPUESTA_CATALOGO, '400': RESPUESTA_ERROR,
-                          '401': RESPUESTA_ERROR, '404': RESPUESTA_ERROR,
-                          '409': RESPUESTA_ERROR},
+                          '401': RESPUESTA_ERROR, '403': RESPUESTA_ERROR,
+                          '404': RESPUESTA_ERROR, '409': RESPUESTA_ERROR},
         }},
         '/api/book/delete': {'delete': {
             'tags': ['Escritura'],
@@ -1421,12 +1525,14 @@ ESPECIFICACION = {
             'description': 'Sus autores, generos, conceptos e imagenes se van '
                            'con el por ON DELETE CASCADE. Tambien acepta POST y '
                            '/api/book/delete/{isbn}.',
+            'security': SEGURIDAD_ESCRITURA,
             'parameters': [_param('isbn', 'ISBN del libro a borrar')],
             'requestBody': {'required': False, 'content': {'application/json': {
                 'schema': {'type': 'object',
                            'properties': {'isbn': {'type': 'string'}}}}}},
             'responses': {'200': RESPUESTA_CATALOGO, '400': RESPUESTA_ERROR,
-                          '401': RESPUESTA_ERROR, '404': RESPUESTA_ERROR},
+                          '401': RESPUESTA_ERROR, '403': RESPUESTA_ERROR,
+                          '404': RESPUESTA_ERROR},
         }},
         '/api/health': {'get': {
             'tags': ['Servicio'],
@@ -1436,10 +1542,19 @@ ESPECIFICACION = {
     },
     'components': {
         'securitySchemes': {
+            'JWTLogin': {
+                'type': 'http', 'scheme': 'bearer', 'bearerFormat': 'JWT',
+                'description': 'JWT devuelto por POST /login en '
+                               'apps/services/login, con rol "admin". '
+                               'Mecanismo por omision para insertar, '
+                               'actualizar o borrar; un JWT valido de otro '
+                               'rol se rechaza con 403.',
+            },
             'ClaveEscritura': {
                 'type': 'apiKey', 'in': 'header', 'name': 'X-API-Key',
-                'description': 'Solo si el servicio arranco con API_TOKEN '
-                               'definido en su .env.',
+                'description': 'Alternativa de servicio a servicio, solo si '
+                               'el servicio arranco con API_TOKEN definido en '
+                               'su .env.',
             },
         },
     },
@@ -1536,10 +1651,6 @@ def indice():
 
 
 if __name__ == '__main__':
-    if not API_TOKEN and ORIGENES == ['*']:
-        log.warning('Las escrituras estan abiertas a cualquier origen y sin '
-                    'clave. Define API_TOKEN y CORS_ORIGENES en el .env antes '
-                    'de exponer este servicio a internet.')
     if not BD['password']:
         log.warning('DB_PASSWORD viene vacia: revisa apps/services/catalogo/.env')
     app.run(host=APP_HOST, port=APP_PORT, debug=False)

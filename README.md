@@ -642,7 +642,7 @@ in use* o, peor porque no se nota, respondería lo que no es.
 ```bash
 cd /opt/udem/libreria/apps/services/catalogo
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-cp .env.example .env && chmod 600 .env     # completar DB_PASSWORD y API_TOKEN
+cp .env.example .env && chmod 600 .env     # completar DB_PASSWORD y JWT_SECRET
 
 sudo restorecon -Rv /opt/udem/libreria/apps/services/catalogo
 sudo cp /opt/udem/libreria/deploy/libreria-catalogo.service /etc/systemd/system/
@@ -650,8 +650,14 @@ sudo systemctl daemon-reload && sudo systemctl enable --now libreria-catalogo
 systemctl status libreria-catalogo --no-pager -l
 ```
 
-Tres cosas que cuestan un rato averiguar si no están escritas:
+Cuatro cosas que cuestan un rato averiguar si no están escritas:
 
+- **Sin `JWT_SECRET` el servicio no arranca**, y es a propósito: sin él no hay
+  forma de verificar los JWT que el microservicio de autenticación emite en
+  `/login`, y `/books/insert`, `/books/update` y `/books/delete` se quedarían
+  sin protección real. Debe ser **el mismo valor** que `JWT_SECRET` en
+  `apps/services/login/.env` — es un secreto compartido, no uno propio de este
+  servicio.
 - **El `restorecon` va DESPUÉS del `pip install`**, y hay que repetirlo cada vez
   que se recree el entorno virtual. Los archivos clonados en el directorio
   personal arrastran la etiqueta SELinux `user_home_t`, y systemd no puede
@@ -685,7 +691,7 @@ use*. Con systemd el proceso cuelga de PID 1, vuelve solo tras reiniciar la VM
 ```bash
 cd /opt/udem/libreria/apps/services/login
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-cp .env.example .env && chmod 600 .env     # completar DB_PASSWORD y SECRET_KEY
+cp .env.example .env && chmod 600 .env     # completar DB_PASSWORD, SECRET_KEY y JWT_SECRET
 
 sudo restorecon -Rv /opt/udem/libreria/apps/services/login
 sudo cp /opt/udem/libreria/deploy/libreria-login.service /etc/systemd/system/
@@ -703,6 +709,11 @@ Mismas trampas que el catálogo —el `restorecon` después del `pip install`, e
   `python3 -c "import secrets; print(secrets.token_urlsafe(48))"`. Cambiarla
   invalida todas las sesiones abiertas, que es justo lo que se quiere si alguna
   vez se sospecha que se filtró.
+- **`JWT_SECRET` tampoco tiene valor por omisión**, y debe ser **el mismo**
+  que `apps/services/catalogo/.env`: `/login` firma con él el JWT que devuelve
+  junto con la cookie de sesión, y el catálogo lo usa para verificar ese mismo
+  token en sus escrituras (`Authorization: Bearer <token>`), sin consultar a
+  este servicio ni a una base de sesiones compartida.
 - **Necesita Postfix levantado** para verificar correos, pero no depende de él
   para arrancar: `Wants=`, no `Requires=`. Sin Postfix el registro sigue
   funcionando y `/health` reporta el correo como `degradado`, no como `error`.
@@ -738,13 +749,18 @@ Diagnóstico: `curl` colgado sin respuesta es firewall; *connection refused* es
 que el servicio no corre o escucha sólo en loopback.
 
 > **Con el 5002 abierto a `0.0.0.0/0`, `/books/insert`, `/books/update` y
-> `/books/delete` quedan al alcance de cualquiera**, porque corren con el rol
-> `libreria_app`, que sí escribe. Lo único que los protege es `API_TOKEN`, y
-> viene vacío por omisión — el servicio lo avisa en cada arranque. Define uno en
-> `apps/services/catalogo/.env`, o estrecha la regla a tu IP con
-> `gcloud compute firewall-rules update libreria-permitir-catalogo
-> --source-ranges=TU_IP/32`. Lo ideal es lo primero; lo segundo no sobrevive a
-> un cambio de red.
+> `/books/delete` son alcanzables por cualquiera**, porque corren con el rol
+> `libreria_app`, que sí escribe. Lo que los protege es que las tres exigen un
+> JWT válido **con rol `admin`** emitido por `/login`
+> (`Authorization: Bearer <token>`) — o, si se definió, la `X-API-Key` de
+> `API_TOKEN` como vía alterna de servicio a servicio. Un JWT válido de un
+> `lector` se rechaza igual, con 403 en vez de 401. Ninguna de las dos tiene
+> valor por omisión que abra las escrituras: sin un JWT de administrador, y
+> sin `API_TOKEN` configurado, el catálogo rechaza la escritura. Para acotar
+> aún más la superficie, estrecha la regla a tu IP con
+> `gcloud compute firewall-rules update
+> libreria-permitir-catalogo --source-ranges=TU_IP/32`, aunque eso no
+> sobrevive a un cambio de red.
 
 ### La IP pública es efímera
 

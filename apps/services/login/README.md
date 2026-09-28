@@ -135,6 +135,40 @@ fabricarse una sesión.
 pudo borrarse o desactivarse después de que la cookie se firmara. La cookie dice
 quién dijo ser, no quién sigue siendo.
 
+## El JWT
+
+`POST /login` con credenciales correctas devuelve, además de la cookie, un
+**JWT firmado HS256** en el campo `token` (`sesion.token` en XML y JSON). Es lo
+que exige `apps/services/catalogo` en `/books/insert`, `/books/update` y
+`/books/delete`: sin base de sesiones compartida, el catálogo verifica el
+token por su cuenta con el mismo secreto con que este servicio lo firmó.
+
+```
+Authorization: Bearer <token>
+```
+
+| Claim | Contenido |
+|---|---|
+| `sub` | Id del usuario |
+| `email`, `rol` | Los de la cuenta autenticada |
+| `iss` | `login-libreria` |
+| `iat`, `exp` | Emisión y expiración (`JWT_EXPIRA_MINUTOS`, 60 por omisión) |
+
+`JWT_SECRET` es, igual que `SECRET_KEY`, obligatoria y sin valor por omisión:
+el servicio no arranca sin ella. A diferencia de `SECRET_KEY`, es un secreto
+**compartido**: debe ser el mismo valor en `apps/services/catalogo/.env`, que
+lo usa para verificar en vez de firmar. `jwt.decode()` del lado del catálogo
+fija `algorithms=['HS256']` de forma explícita — nunca toma el algoritmo del
+propio token — precisamente para que un JWT con `"alg":"none"` no se acepte
+sin comprobar ninguna firma.
+
+El catálogo además exige que el claim `rol` valga `admin`: un JWT válido pero
+de un `lector` (el rol con el que `/register` da de alta a todo el mundo) se
+rechaza igual, con 403 en vez de 401. Este servicio no decide quién es admin
+— el rol sale de `usuarios.rol` en la base, que este servicio sólo lee — así
+que promover una cuenta es una operación de base de datos, no de este
+microservicio.
+
 ## Levantarlo
 
 ```bash
@@ -156,8 +190,10 @@ catálogo, que se mudó al 5002.
 python3 pruebas.py
 ```
 
-84 comprobaciones en proceso, con el `test_client` de Flask y dobles en lugar de
+88 comprobaciones en proceso, con el `test_client` de Flask y dobles en lugar de
 PostgreSQL y Postfix: el contrato de formato, los códigos de estado, que el hash
-no se filtre en ninguna respuesta, la interpretación de cada código SMTP y que
-Swagger documente los dos formatos en todas las operaciones. Lo que **no**
-cubren es que la base conteste: eso sólo se puede comprobar en la VM.
+no se filtre en ninguna respuesta, que `/login` devuelva un JWT válido y
+verificable (y que uno firmado con otra clave se rechace), la interpretación de
+cada código SMTP y que Swagger documente los dos formatos en todas las
+operaciones. Lo que **no** cubren es que la base conteste: eso sólo se puede
+comprobar en la VM.

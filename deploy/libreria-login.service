@@ -77,8 +77,10 @@ RestartSec=5
 
 # El .env lo lee python-dotenv desde el WorkingDirectory. Debe pertenecer al
 # usuario que ejecuta el servicio y tener permisos 600: lleva la contrasena de
-# libreria_app y la SECRET_KEY con la que se firman las sesiones. Quien lea esa
-# clave puede fabricarse la sesion de cualquier usuario.
+# libreria_app, la SECRET_KEY con la que se firman las sesiones y el
+# JWT_SECRET con el que se firman los tokens que libreria-catalogo verifica
+# (el MISMO valor en los dos .env). Quien lea cualquiera de las dos claves
+# puede fabricarse una sesion o un token de escritura de cualquier usuario.
 
 # --- Endurecimiento -----------------------------------------------------------
 # No escribe un solo archivo en disco: las cuentas van a PostgreSQL y la sesion
