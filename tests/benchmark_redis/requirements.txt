@@ -1,0 +1,13 @@
+# Benchmark de lecturas PostgreSQL contra Redis (tests/benchmark_redis/benchmark.py).
+#
+#     cd tests/benchmark_redis
+#     python3 -m venv .venv && . .venv/bin/activate
+#     pip install -r requirements.txt
+#
+# psycopg2-binary y no psycopg 3: es el driver del microservicio de catalogo,
+# cuyas consultas se miden aqui. 2.9.10 por la misma razon que alla: la 2.9.9
+# no publica rueda para Python 3.13.
+
+psycopg2-binary==2.9.10
+redis==5.2.1
+python-dotenv==1.0.1
