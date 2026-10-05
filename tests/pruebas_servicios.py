@@ -8,6 +8,10 @@ db/pending/20261004-pedidos-pagos.sql aplicadas y credenciales por entorno:
     ADMIN_EMAIL=... ADMIN_PASS=... LECTOR_EMAIL=... LECTOR_PASS=... \\
     python3 tests/pruebas_servicios.py
 
+Por HTTPS (nginx en el 443, ver deploy/nginx-api-tls.conf): CA_CERT=<ruta al
+.crt autofirmado>. Con eso todo va a https://HOST sin puertos y el certificado
+SE VERIFICA contra esa copia (nunca se desactiva la verificacion).
+
 Opcional: LIBRO_ID (un libro con stock), LOGIN_PORT/USERS_PORT/AUTHORS_PORT/
 PEDIDOS_PORT/PAGOS_PORT. Las credenciales NUNCA van en el codigo.
 
@@ -17,6 +21,7 @@ borran (son registro contable). Limpia lo demas (autor y usuario de prueba).
 import json
 import os
 import secrets
+import ssl
 import sys
 import urllib.error
 import urllib.request
@@ -25,6 +30,8 @@ HOST = os.environ.get('HOST', '127.0.0.1')
 PUERTOS = {n: os.environ.get(n.upper() + '_PORT', p) for n, p in
            (('login', '5000'), ('users', '5003'), ('authors', '5004'),
             ('pedidos', '5005'), ('pagos', '5006'))}
+CA_CERT = os.environ.get('CA_CERT')
+CONTEXTO = ssl.create_default_context(cafile=CA_CERT) if CA_CERT else None
 FALTAN = [v for v in ('ADMIN_EMAIL', 'ADMIN_PASS', 'LECTOR_EMAIL', 'LECTOR_PASS')
           if not os.environ.get(v)]
 if FALTAN:
@@ -48,11 +55,14 @@ def llamar(servicio, metodo, ruta, cuerpo=None, token=None):
     cabeceras = {'Content-Type': 'application/json'}
     if token:
         cabeceras['Authorization'] = 'Bearer ' + token
+    # Por HTTPS, nginx reparte por ruta (/login, /users, ...): sin puertos.
+    base = ('https://{}'.format(HOST) if CONTEXTO
+            else 'http://{}:{}'.format(HOST, PUERTOS[servicio]))
     peticion = urllib.request.Request(
-        'http://{}:{}{}'.format(HOST, PUERTOS[servicio], ruta),
+        base + ruta,
         data=datos, headers=cabeceras, method=metodo)
     try:
-        with urllib.request.urlopen(peticion, timeout=15) as r:
+        with urllib.request.urlopen(peticion, timeout=15, context=CONTEXTO) as r:
             crudo = r.read()
             return r.status, (json.loads(crudo) if crudo else None)
     except urllib.error.HTTPError as e:
