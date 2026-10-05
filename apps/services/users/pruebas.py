@@ -109,5 +109,42 @@ r = cliente.get('/health')
 revisar(r.status_code == 503 and json.loads(r.data)['estado'] == 'sin base de datos',
         'sin base, /health responde 503 sin colgarse', r.status_code)
 
+print('5. _buscar lee del cursor, no de la conexion')
+# En Psycopg 3, Connection.execute() devuelve un cursor NUEVO y la fila se lee
+# de ahi; la conexion no tiene fetchone(). Confundirlos no falla al importar ni
+# al arrancar: falla en caliente, con un AttributeError que el manejador
+# generico convierte en 500. Este doble no tiene fetchone, igual que el objeto
+# real, asi que si alguien vuelve a leer de la conexion, la prueba lo caza.
+
+
+class CursorFalso:
+    def __init__(self, fila):
+        self.fila = fila
+
+    def fetchone(self):
+        return self.fila
+
+
+class ConexionFalsa:
+    """Deliberadamente SIN fetchone, como psycopg.Connection."""
+
+    def __init__(self, fila):
+        self.fila, self.sql = fila, None
+
+    def execute(self, sql, parametros=None):
+        self.sql = sql
+        return CursorFalso(self.fila)
+
+
+FILA = {'id': 7, 'email': 'quien@example.com'}
+conexion_falsa = ConexionFalsa(FILA)
+try:
+    obtenida = servicio._buscar(conexion_falsa, 7)
+except AttributeError as error:
+    obtenida = 'AttributeError: {}'.format(error)
+revisar(obtenida == FILA, '_buscar devuelve la fila leida del cursor', obtenida)
+revisar('JOIN personas' in (conexion_falsa.sql or ''),
+        'y consulta el nombre en personas, no en usuarios')
+
 print('\n{} comprobaciones, {} fallos'.format(hechas, len(fallos)))
 sys.exit(1 if fallos else 0)

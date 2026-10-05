@@ -316,9 +316,11 @@ SELECT_USUARIO = """
 """
 
 
-def _buscar(cur, usuario_id):
-    cur.execute(SELECT_USUARIO + ' WHERE u.id = %s', (usuario_id,))
-    return cur.fetchone()
+def _buscar(con, usuario_id):
+    # El parametro es una CONEXION, no un cursor: en Psycopg 3,
+    # Connection.execute() devuelve un cursor nuevo y es de ahi de donde se lee.
+    # Llamar con.fetchone() lanza AttributeError y acaba en un 500.
+    return con.execute(SELECT_USUARIO + ' WHERE u.id = %s', (usuario_id,)).fetchone()
 
 
 def _hash(password):
