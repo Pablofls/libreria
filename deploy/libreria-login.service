@@ -24,14 +24,20 @@
 # .env comun no se los pise.
 # =============================================================================
 
+# REDIS: JWT revocados (y, en login, sesiones y refresh tokens) viven en Redis.
+# Va en After/Wants y NO en Requires: si Redis cae, el servicio sigue vivo y
+# responde 503 donde hace falta (fallan cerrado), en vez de morir con el.
+# REDIS_URL, con la contrasena, va en el .env. El nombre de la unidad cambia
+# segun la distribucion (redis o valkey); un nombre que no existe se ignora.
+
 [Unit]
 Description=Microservicio de autenticacion de la Libreria Online (Flask + PostgreSQL + Postfix)
 Documentation=file:/opt/udem/libreria/apps/services/login/README.md
-After=network-online.target postgresql.service postfix.service
+After=network-online.target postgresql.service postfix.service redis.service valkey.service
 # Postfix en Wants y no en Requires: si el verificador de correo no esta, el
 # registro sigue funcionando y solo deja de poder comprobar la direccion. No es
 # motivo para que el servicio no arranque.
-Wants=network-online.target postfix.service
+Wants=network-online.target postfix.service redis.service valkey.service
 
 [Service]
 Type=simple

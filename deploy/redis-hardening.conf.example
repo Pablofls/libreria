@@ -1,0 +1,34 @@
+# =============================================================================
+# deploy/redis-hardening.conf.example
+# Ajustes de Redis para la libreria: sesiones, refresh tokens, lista de
+# revocacion de JWT (jwt:revoked:<jti>) y cache del catalogo (books:*).
+#
+# Es un EJEMPLO: no lleva ninguna contrasena. La real la escribes tu en la VM y
+# la misma va en REDIS_URL de los .env de los seis servicios:
+#     REDIS_URL=redis://:CONTRASENA@127.0.0.1:6379/0
+#
+# Archivo de configuracion de Redis: /etc/redis/redis.conf (en algunas
+# distribuciones /etc/redis.conf, o /etc/valkey/valkey.conf si es Valkey).
+# Despues de cambiarlo:  sudo systemctl restart redis
+# =============================================================================
+
+# Solo loopback: los servicios corren en la misma VM. Nunca 0.0.0.0.
+bind 127.0.0.1 -::1
+protected-mode yes
+port 6379
+
+# Autenticacion. Genera una contrasena larga y aleatoria, p. ej.
+#     python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+# y ponla aqui (solo en la VM, no en el repositorio):
+# requirepass <CONTRASENA>
+
+# Todas las claves que guardamos llevan TTL (sesion, refresh, revocacion,
+# cache), asi que ante falta de memoria se descartan primero las que van a
+# caducar de todos modos.
+maxmemory 128mb
+maxmemory-policy volatile-lru
+
+# Redis es una capa auxiliar: PostgreSQL es la fuente de datos. Perder Redis
+# cierra las sesiones abiertas (hay que volver a entrar), nada mas.
+# Si prefieres que sobrevivan a un reinicio, activa la persistencia:
+# appendonly yes

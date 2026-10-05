@@ -14,11 +14,17 @@
 # servicios. Quien lea esa clave puede fabricarse un token de administrador.
 # =============================================================================
 
+# REDIS: JWT revocados (y, en login, sesiones y refresh tokens) viven en Redis.
+# Va en After/Wants y NO en Requires: si Redis cae, el servicio sigue vivo y
+# responde 503 donde hace falta (fallan cerrado), en vez de morir con el.
+# REDIS_URL, con la contrasena, va en el .env. El nombre de la unidad cambia
+# segun la distribucion (redis o valkey); un nombre que no existe se ignora.
+
 [Unit]
 Description=Microservicio de autores de la Libreria Online (Flask + PostgreSQL + JWT)
 Documentation=file:/opt/udem/libreria/apps/services/authors/README.md
-After=network-online.target postgresql.service
-Wants=network-online.target
+After=network-online.target postgresql.service redis.service valkey.service
+Wants=network-online.target redis.service valkey.service
 
 [Service]
 Type=simple

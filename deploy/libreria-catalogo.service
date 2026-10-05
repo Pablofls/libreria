@@ -34,11 +34,17 @@
 # use" o, peor porque no se nota, el catalogo respondería Faults de SOAP.
 # =============================================================================
 
+# REDIS: JWT revocados (y, en login, sesiones y refresh tokens) viven en Redis.
+# Va en After/Wants y NO en Requires: si Redis cae, el servicio sigue vivo y
+# responde 503 donde hace falta (fallan cerrado), en vez de morir con el.
+# REDIS_URL, con la contrasena, va en el .env. El nombre de la unidad cambia
+# segun la distribucion (redis o valkey); un nombre que no existe se ignora.
+
 [Unit]
 Description=Microservicio de catalogo de la Libreria Online (Flask + PostgreSQL)
 Documentation=file:/opt/udem/libreria/README.md
-After=network-online.target postgresql.service
-Wants=network-online.target
+After=network-online.target postgresql.service redis.service valkey.service
+Wants=network-online.target redis.service valkey.service
 
 [Service]
 Type=simple
