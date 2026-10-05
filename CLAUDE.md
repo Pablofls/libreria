@@ -268,12 +268,14 @@ visual sólo se puede verificar a mano (no hay captura de pantalla desde Claude)
   que correrlo en su Mac. Desde la propia VM, la IP pública no sirve para probar
   un puerto nuevo (sale a la red de Google y `firewalld` lo descarta): probar con
   `--connect-to <ip>:443:127.0.0.1:443`.
-- **La IP del usuario cambia** (otra red): las reglas de GCP
-  `libreria-permitir-api-tls` (443) y `libreria-permitir-servicios-jwt`
-  (5003–5006) sólo aceptan la IP con que se crearon; si de pronto todo da timeout
-  desde su Mac, comparar `curl -s ifconfig.me` (en el Mac) y
-  `gcloud compute firewall-rules update <regla> --source-ranges=<ip>/32`.
-  El 443 se actualizó a 189.159.107.64; la de 5003–5006 sigue con la IP vieja.
+- **La IP del usuario cambia** (cambió tres veces en dos días). Por eso el **443 se
+  abrió a cualquier IP** el 2026-10-05 (`libreria-permitir-api-tls`,
+  `--source-ranges=0.0.0.0/0`): nginx sólo reenvía la API y las portadas, todo lo
+  demás es 404, las operaciones exigen JWT y el login tiene limitador. Si algún día
+  hay timeouts desde el Mac, ya no es la IP: revisar nginx y `firewalld`
+  (`firewall-cmd --list-ports` debe incluir 443/tcp). La regla de **5003–5006**
+  (`libreria-permitir-servicios-jwt`) **sigue restringida a una IP vieja** y debería
+  cerrarse del todo (ver pendientes).
 - Un `requirements.txt` que no lleva una dependencia nueva rompe el servicio sólo
   en la VM (`ModuleNotFoundError` en el worker de gunicorn): al añadir una
   librería, revisar el `requirements.txt` de **cada** servicio que la importe.
@@ -329,7 +331,9 @@ reiniciar los seis servicios. Rotar el secreto JWT cierra todas las sesiones.
    `requirements.txt` de login (el worker no arrancaba); `/metrics` no existía en
    login ni estaba en nginx; la IP del usuario cambió y las reglas de GCP daban
    timeout; pegar en zsh un `;` lo convierte en `\;`.
-6. **Pendiente opcional:** cerrar 5003–5006 hacia fuera (ligar a `127.0.0.1` y quitar
+6. **Tienda (2026-10-05):** `cliente_escritorio.py` rediseñada como librería online con
+   portadas por `https://<ip>/uploads/…`; verificada a mano por el usuario con el admin.
+7. **Pendiente opcional:** cerrar 5003–5006 hacia fuera (ligar a `127.0.0.1` y quitar
    reglas), probar la app con el usuario lector, borrar el libro de prueba
    `9999999999998 / Evidencia curl`, y rediseño visual de la app (portadas).
 
