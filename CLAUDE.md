@@ -173,8 +173,9 @@ en los cuatro `app.py`. Detalle y despliegue: [README.md](README.md), sección
 
 - **JWT.** Lo emite `login` (5000): HS256, **20 min**, claims `sub`, `user_id`,
   `role_id` (admin=1, lector=2, mapa `ROLES_ID` en login; la BD sigue con
-  `usuarios.rol` en texto), `rol`, `email`, `iss='login-libreria'`. Renovable con
-  `POST /token/refresh` (Bearer vigente; uno vencido exige `/login`). Cada
+  `usuarios.rol` en texto), `rol`, `email`, `iss='login-libreria'`. Lleva `jti`.
+  Renovable con `POST /token/refresh` y el `refresh_token` opaco de un solo uso
+  que entrega `/login` (rotación). Cada
   servicio verifica firma, `algorithms=['HS256']` fijo, `exp`, `iss` y claims;
   401 sin token válido, 403 con rol insuficiente. El catálogo (5002) sigue
   validando por `rol == 'admin'`.
@@ -206,6 +207,35 @@ en los cuatro `app.py`. Detalle y despliegue: [README.md](README.md), sección
   entorno (`ADMIN_EMAIL`, `ADMIN_PASS`, `LECTOR_EMAIL`, `LECTOR_PASS`). Deja una
   cuenta de prueba dada de baja y un pedido cancelado con su pago reembolsado:
   los pagos no se borran.
+
+### Redis (código escrito 2026-10-05; despliegue en la VM: ver estado al final)
+
+- **Capa compartida y auxiliar**, `REDIS_URL` común en login, catálogo, users,
+  authors, pedidos y pagos (contraseña sólo en el `.env` de la VM). Claves:
+  `session:<sid>`, `refresh:<sha256>` (el refresh nunca en claro, un solo uso),
+  `jwt:revoked:<jti>`, `ratelimit:login:*`, `books:list:<filtros>` y
+  `books:<isbn>` (60 s), `metrics:<servicio>:*`. Tabla de TTL en el README.
+- **Política ante caída:** sesión, refresh, logout y **toda ruta con JWT** fallan
+  **cerrado** (503; nunca se acepta un token sin poder comprobar la revocación);
+  `GET /books` y `/books/<isbn>` fallan **abierto** (PostgreSQL). `/health` sigue
+  200 con `redis: caido` → semáforo amarillo en el cliente.
+- Cada `app.py` lleva **copiado** el mismo bloque Redis (`redis_cliente`,
+  `redis_op`, `revocado`, `metrica`, `invalidar_catalogo`, `/metrics`): un cambio
+  se replica a mano en los seis. `jti` es claim **obligatorio** en `reclamos_jwt`.
+  `authors` y `pedidos` invalidan `books:*` tras escribir (autores y stock se ven
+  en el catálogo).
+- Pruebas locales con un `RedisFalso` en memoria (cada `pruebas.py`) y
+  `tests/pruebas_redis.py` contra la VM (`REDIS_CAIDO=1` para la prueba de caída).
+
+### Cliente de escritorio (Tkinter)
+
+La app Tk es la **ya existente** `apps/services/soap/cliente/cliente_escritorio.py`,
+ampliada (no hay otra): el clasificador SOAP quedó como una pestaña y se
+añadieron Libros, Autores, Usuarios, Pedidos y Pagos, sesión JWT con renovación
+automática y semáforos. Módulos hermanos: `api_rest.py` (red/JWT/semáforos) y
+`pestanas.py`. Habla por HTTPS (`API_BASE`, `CA_CERT`) a nginx; para eso
+`deploy/nginx-api-tls.conf` expone `/books`, `/concepts` y `/health/<servicio>`.
+Pruebas sin pantalla: `apps/services/soap/tests/pruebas_cliente_rest.py`.
 
 ### Datos de la VM que cuestan averiguar
 

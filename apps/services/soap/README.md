@@ -26,7 +26,7 @@ Aplicación de escritorio → Cliente SOAP → HTTP POST/XML → Módulo SOAP Fl
 | `soap/security.py` | WS-Security UsernameToken con PasswordDigest |
 | `wsdl/library-classifier.wsdl` | El contrato: tipos XSD, portType, binding y endpoint |
 | `sql/soap_module.sql` | Tablas propias, vistas, procedimiento y rol de mínimo privilegio |
-| `cliente/cliente_escritorio.py` | Aplicación de escritorio (Tkinter) como cliente SOAP |
+| `cliente/cliente_escritorio.py` | Aplicación de escritorio (Tkinter): clasificador SOAP + CRUD REST con JWT y semáforos (`api_rest.py`, `pestanas.py`) |
 | `tests/pruebas_soap.py` | Plan de pruebas ejecutable: sobres armados a mano |
 | `tests/regresion_monolito.sql` | Que el módulo no le haya roto nada al monolito |
 | `tests/cliente_zeep.py` | Tarea 4: cliente generado desde el WSDL, otro stack |
@@ -118,8 +118,13 @@ correrlas contra la base real.
 ENDPOINT=http://<host>:5001/soap python3 cliente/cliente_escritorio.py
 ```
 
-Tkinter viene con Python: no instala nada. La GUI **no conoce PostgreSQL**; su
-única puerta al sistema es el endpoint SOAP.
+Tkinter viene con Python: no instala nada. La GUI **no conoce PostgreSQL**; sus
+únicas puertas al sistema son el endpoint SOAP y los endpoints REST.
+
+Además del clasificador (pestaña "Clasificador Cloud", sin login), la misma
+aplicación trae las pestañas Libros, Autores, Usuarios, Pedidos y Pagos y los
+semáforos de los servicios: se configuran con `API_BASE` y `CA_CERT`.
+Ver el README principal, sección "Cliente de escritorio (Tkinter)".
 
 ### 5. Interoperabilidad (Tarea 4)
 

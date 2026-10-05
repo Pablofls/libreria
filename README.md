@@ -695,8 +695,9 @@ Sólo hablan JSON.
 
 **JWT.** `/login` (5000) lo emite con HS256, **20 minutos** y los claims
 `user_id` y `role_id` (admin = 1, lector = 2; la base sigue guardando el rol como
-texto). Se renueva antes de caducar con `POST /token/refresh` (Bearer aún
-vigente; uno vencido exige volver a `/login`). Cada servicio verifica firma,
+texto) más un `jti` único. Se renueva antes de caducar con `POST /token/refresh`
+y el `refresh_token` (de un solo uso) que entrega `/login`. Cada servicio
+verifica firma,
 algoritmo (fijo, nunca el del token), expiración, emisor y claims **antes** de
 tocar datos: **401** sin token o inválido, **403** con rol insuficiente. Las
 lecturas administrativas (usuarios, pedidos, pagos) también exigen JWT; sólo el
@@ -734,6 +735,76 @@ sudo systemctl daemon-reload && sudo systemctl enable --now libreria-users
 
 Pruebas: `python3 pruebas.py` en cada carpeta (seguridad, sin base de datos) y
 `tests/pruebas_servicios.py` contra la VM (flujo completo).
+
+### Redis: sesiones, revocación y caché
+
+Redis es una capa **compartida y auxiliar**: PostgreSQL sigue siendo la fuente de
+datos y nada que viva en Redis es irrecuperable (perderlo cierra las sesiones
+abiertas, nada más). Los seis servicios (login, catálogo, users, authors,
+pedidos, pagos) se conectan con **la misma `REDIS_URL`**
+(`redis://:contraseña@127.0.0.1:6379/0`, contraseña sólo en el `.env` de la VM; en
+los logs se enmascara).
+
+| Clave | Quién la escribe | Contenido | TTL |
+|---|---|---|---|
+| `session:<sid>` | login | usuario, rol, `jti` vigente, hash del refresh | `SESION_TTL_HORAS` (8 h) |
+| `refresh:<sha256>` | login | usuario y `sid` (el refresh en claro **nunca** se guarda) | igual que la sesión |
+| `jwt:revoked:<jti>` | login (`/logout`, `/token/refresh`) | marca de revocado | lo que le queda al JWT (≤ 20 min) |
+| `ratelimit:login:<ip>:<correo>` | login | intentos fallidos (5 / 15 min → 429) | 15 min |
+| `books:list:<filtros>` · `books:<isbn>` | catálogo | lectura cacheada | `CACHE_TTL_SEGUNDOS` (60 s) |
+| `metrics:<servicio>:<contador>` | todos | contadores compartidos entre workers | sin TTL |
+
+**Cómo se usa.** `/login` abre `session:<sid>` y entrega JWT (20 min) +
+`refresh_token`. El refresh se **rota**: cada `/token/refresh` entrega uno nuevo
+y revoca el JWT anterior; uno usado se rechaza. `/logout` pone el `jti` en
+`jwt:revoked:<jti>` y borra sesión y refresh. **Cada servicio comprueba
+`jwt:revoked:<jti>` antes de aceptar un JWT.** El catálogo cachea `GET /books` y
+`GET /books/<isbn>` (cabecera `X-Cache: HIT|MISS`) y borra `books:*` tras
+cualquier POST/PUT/PATCH/DELETE; `authors` y `pedidos` también lo hacen al escribir,
+porque cambian lo que el catálogo muestra (autores, stock).
+
+**Si Redis cae** (decisión de diseño, la que pide el ejercicio):
+
+| Operación | Comportamiento |
+|---|---|
+| Login, refresh, logout, `/session` | **503** (falla cerrado): sin dónde guardar o borrar la sesión no se finge nada |
+| Cualquier ruta con JWT (escrituras, lecturas administrativas) | **503**: no se puede comprobar la revocación, no se acepta "por si acaso" |
+| Sin token | 401, como siempre |
+| `GET /books` y `GET /books/<isbn>` | **200 desde PostgreSQL** (falla abierto), se cuenta el error |
+| `/health` | sigue en 200 y marca `redis: caido` → semáforo **amarillo** |
+
+**Métricas.** `GET /metrics` (JWT de admin) en cada servicio: estado de Redis y los
+contadores (`cache_aciertos`, `cache_fallos`, `invalidaciones_catalogo`,
+`revocaciones_consultadas`, `tokens_revocados_rechazados`, `login_correctos`,
+`login_bloqueados`, `refresh_correctos`, `refresh_rechazados`, `logout`,
+`cache_errores`…). Los JWT emitidos antes de activar Redis no llevan `jti` y
+dejan de valer: caducan en 20 min.
+
+**Pruebas.** `python3 pruebas.py` en cada servicio (con un Redis falso en memoria,
+sin red) y `tests/pruebas_redis.py` contra la VM; con Redis parado, la misma
+prueba con `REDIS_CAIDO=1` comprueba la falla segura. Ajustes de Redis:
+[deploy/redis-hardening.conf.example](deploy/redis-hardening.conf.example).
+
+### Cliente de escritorio (Tkinter)
+
+[apps/services/soap/cliente/cliente_escritorio.py](apps/services/soap/cliente/cliente_escritorio.py)
+es la app de escritorio ya existente, ampliada: el clasificador SOAP sigue como
+una pestaña y se suman **Libros, Autores, Usuarios, Pedidos y Pagos** (tabla +
+formulario, CRUD según el rol), inicio y cierre de sesión (el `/logout` revoca el
+token) y **semáforos** de cada servicio, de Redis y del SOAP, cada 10 s: verde =
+ok, amarillo = funciona degradado (Redis caído), rojo = no responde. Renueva el
+JWT sola antes de que caduque.
+
+```bash
+API_BASE=https://34.51.108.167 CA_CERT=~/libreria-api.crt python3 apps/services/soap/cliente/cliente_escritorio.py
+```
+
+`CA_CERT` es la copia del certificado autofirmado (se baja con `gcloud compute scp`,
+ver [docs/GCP_COMMANDS.md](docs/GCP_COMMANDS.md)); la verificación nunca se
+desactiva. En macOS hace falta Tk (`brew install python-tk`). El código está
+partido en `api_rest.py` (red, JWT, semáforos), `pestanas.py` (una clase por
+pestaña) y `cliente_escritorio.py`; las pruebas sin pantalla, en
+`apps/services/soap/tests/pruebas_cliente_rest.py`.
 
 ### Microservicio de catálogo
 
