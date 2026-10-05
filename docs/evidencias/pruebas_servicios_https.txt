@@ -1,0 +1,35 @@
+1. Login, claims y renovacion
+  ok   POST /token/refresh con token vigente 
+  ok   refresh sin token, 401 
+2. Authors
+  ok   GET /authors es publico 
+  ok   POST sin token, 401 
+  ok   POST con token de lector, 403 
+  ok   POST con admin, 201 
+  ok   PATCH con admin, 200 
+  ok   DELETE con admin, 204 
+  ok   el autor borrado ya no existe, 404 
+3. Users
+  ok   GET /users sin token, 401 
+  ok   GET /users con lector, 403 
+  ok   GET /users con admin, 200 y sin hashes 
+  ok   un lector ve su propia cuenta 
+  ok   y no la de otro, 403 
+  ok   un lector no se asciende a admin, 403 
+  ok   POST /users con admin crea la cuenta de prueba 
+4. Pedidos y Pagos
+  ok   GET /orders sin token, 401 
+  ok   pedir mas que el stock, 409 
+  ok   un lector crea su pedido, 201 
+  ok   el admin ve el pedido 
+  ok   un lector no cambia estados, 403 
+  ok   pendiente -> enviado no es una transicion valida, 409 
+  ok   pagar de mas, 409 
+  ok   pago completo, 201 y el pedido pasa a pagado 
+  ok   un pedido pagado no admite otro pago, 409 
+  ok   el admin lista pagos 
+  ok   reembolsar con el pedido vigente, 409 
+  ok   el admin cancela el pedido pagado (devuelve stock) 
+  ok   ahora si se reembolsa el pago 
+
+29 comprobaciones, 0 fallos
