@@ -279,6 +279,51 @@ terminal al pegar añade una `\` antes del `;` y rompe el comando. Su shell en e
 Mac es zsh (`read "VAR?texto"`, no `read -p`). Las contraseñas se piden con
 `read -s` y nunca se pegan en el chat.
 
+## Secretos: dónde vive cada uno (nunca sus valores)
+
+Ningún valor de esta tabla está en el repositorio, ni en el chat, ni en un log.
+Si una sesión necesita uno, **pídele al usuario que lo escriba él** (`read -s`) o que
+lo lea en la VM; no lo pidas pegado en la conversación.
+
+| Secreto | Dónde está | Notas |
+|---|---|---|
+| Contraseña de **Redis** | VM: `requirepass` en `/etc/redis/redis.conf` y `REDIS_URL=redis://:<pass>@127.0.0.1:6379/0` en el `.env` de **los seis** servicios (login, catalogo, users, authors, pedidos, pagos) | Generada con `secrets.token_urlsafe(32)` el 2026-10-05. Para usar `redis-cli`: `REDISCLI_AUTH='<pass>' redis-cli PING` |
+| `JWT_SECRET_KEY` | VM: `.env` de login y de los 4 servicios nuevos; el de **catalogo** y el de login conservan el nombre viejo `JWT_SECRET` | El **mismo valor** en todos. Cambiarlo invalida todos los tokens |
+| `DB_PASSWORD` (rol `libreria_app`) | VM: `.env` de cada servicio y del monolito | Mismo valor; los 4 nuevos lo copiaron del `.env` de login |
+| `SECRET_KEY` (cookie de login) | VM: `apps/services/login/.env` | Distinta de `JWT_SECRET_KEY`; sólo firma la cookie con el `sid` |
+| Clave del certificado TLS | VM: `/etc/pki/tls/private/libreria-api.key` (600, root) | Nunca sale de la VM |
+| Certificado público TLS | VM: `/etc/pki/tls/certs/libreria-api.crt`; copia en el Mac del usuario: `~/libreria-api.crt` (`gcloud compute scp`) | Autofirmado para la IP `34.51.108.167`; vence a un año de 2026-10-04 |
+| Contraseñas de las cuentas de prueba | **No se guardan**. Las pruebas las reciben por `ADMIN_PASS`/`LECTOR_PASS` | Admin de prueba: `admin@libreria.com`. Lector: `cesar.villalobos@libreria.udem.mx` (el del monolito es `ana.ruiz@libreria.udem.mx`) |
+
+Los `.env` de la VM son `600`, dueño `pablogcp26`, y **no están versionados**; los
+`.env.example` sólo traen claves vacías o `CONTRASENA` de relleno.
+
+**Rotar la contraseña de Redis** (si se filtra): generar otra, cambiar `requirepass`
+en `/etc/redis/redis.conf`, reescribir la línea `REDIS_URL` en los seis `.env`
+(`sed -i '/^REDIS_URL=/d'` y volver a añadirla), `sudo systemctl restart redis` y
+reiniciar los seis servicios. Rotar el secreto JWT cierra todas las sesiones.
+
+## Bitácora de la sesión 2026-10-04 / 05 (qué se hizo, en orden)
+
+1. **Servicios Users, Authors, Pedidos y Pagos** (5003–5006) con JWT; login con JWT de
+   20 min, `user_id` y `role_id`. Migración `db/applied/20261004-pedidos-pagos.sql`
+   (4FN) aplicada en la VM. Pruebas: 31 en la VM, 29 desde fuera.
+2. **HTTPS**: `deploy/nginx-api-tls.conf` en el 443 con certificado autofirmado (sin
+   dominio). Pruebas por HTTPS: `docs/evidencias/pruebas_servicios_https.txt`.
+3. **Redis** en los seis servicios (sesión, refresh de un solo uso, revocación por
+   `jti`, caché del catálogo, limitador de login, métricas) con falla cerrada/abierta.
+   Pruebas en la VM: `pruebas_redis_vm.txt` (26/0 fallos) y `pruebas_redis_caida_vm.txt`.
+4. **App de escritorio** `cliente_escritorio.py` ampliada (pestañas REST, sesión,
+   semáforos), verificada a mano contra la VM: login admin, CRUD de autores, y
+   semáforos en amarillo/rojo al parar Redis y de vuelta a verde al arrancarlo.
+5. **Errores que costaron tiempo** (no repetir): `redis` faltaba en el
+   `requirements.txt` de login (el worker no arrancaba); `/metrics` no existía en
+   login ni estaba en nginx; la IP del usuario cambió y las reglas de GCP daban
+   timeout; pegar en zsh un `;` lo convierte en `\;`.
+6. **Pendiente opcional:** cerrar 5003–5006 hacia fuera (ligar a `127.0.0.1` y quitar
+   reglas), probar la app con el usuario lector, borrar el libro de prueba
+   `9999999999998 / Evidencia curl`, y rediseño visual de la app (portadas).
+
 ## Comandos
 
 ```bash
