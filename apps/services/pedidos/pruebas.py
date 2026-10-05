@@ -11,6 +11,7 @@ SQL se prueba contra la VM con tests/pruebas_jwt.py.
 import os
 import sys
 import json
+import uuid
 from datetime import datetime, timedelta, timezone
 
 os.environ.setdefault('JWT_SECRET_KEY', 'clave-solo-para-las-pruebas-en-proceso')
@@ -22,6 +23,64 @@ os.environ['LOG_NIVEL'] = 'CRITICAL'
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import app as servicio                                            # noqa: E402
 import jwt                                                        # noqa: E402
+import fnmatch                                                    # noqa: E402
+import redis as _redis_lib                                        # noqa: E402
+
+
+class RedisFalso:
+    """Redis en memoria para las pruebas. `caido = True` simula una caida."""
+
+    def __init__(self):
+        self.datos, self.ttls, self.caido = {}, {}, False
+
+    def _vivo(self):
+        if self.caido:
+            raise _redis_lib.ConnectionError('simulado')
+
+    def ping(self):
+        self._vivo()
+        return True
+
+    def exists(self, *claves):
+        self._vivo()
+        return sum(1 for k in claves if k in self.datos)
+
+    def get(self, clave):
+        self._vivo()
+        return self.datos.get(clave)
+
+    def set(self, clave, valor, ex=None):
+        self._vivo()
+        self.datos[clave] = str(valor)
+        self.ttls[clave] = ex
+        return True
+
+    def setex(self, clave, segundos, valor):
+        return self.set(clave, valor, ex=segundos)
+
+    def incrby(self, clave, cantidad=1):
+        self._vivo()
+        self.datos[clave] = str(int(self.datos.get(clave, 0)) + cantidad)
+        return int(self.datos[clave])
+
+    def delete(self, *claves):
+        self._vivo()
+        return sum(1 for k in claves if self.datos.pop(k, None) is not None)
+
+    unlink = delete
+
+    def ttl(self, clave):
+        self._vivo()
+        return self.ttls.get(clave, -1) if clave in self.datos else -2
+
+    def scan_iter(self, match='*', count=None):
+        self._vivo()
+        return iter([k for k in list(self.datos) if fnmatch.fnmatch(k, match)])
+
+
+FALSO = RedisFalso()
+servicio.REDIS_URL = 'redis://:falsa@127.0.0.1:6379/0'
+servicio._redis = FALSO
 
 fallos, hechas = [], 0
 
@@ -38,7 +97,7 @@ def revisar(condicion, descripcion, extra=''):
 def token(user_id=1, role_id=servicio.ROL_LECTOR, **cambios):
     ahora = datetime.now(timezone.utc)
     reclamos = {'sub': str(user_id), 'user_id': user_id, 'role_id': role_id,
-                'iss': 'login-libreria', 'iat': ahora,
+                'jti': uuid.uuid4().hex, 'iss': 'login-libreria', 'iat': ahora,
                 'exp': ahora + timedelta(minutes=20)}
     reclamos.update(cambios)
     reclamos = {k: v for k, v in reclamos.items() if v is not None}
@@ -67,6 +126,7 @@ malos = {
     'sin user_id': token(user_id=None),
     'role_id inexistente': token(role_id=99),
     'sin exp': token(exp=None),
+    'sin jti': token(jti=None),
     'alg none': jwt.encode({'user_id': 2, 'role_id': 1, 'iss': 'login-libreria'}, None, algorithm='none'),
     'basura': 'no.es.un.jwt',
 }
@@ -93,7 +153,52 @@ for cuerpo in ({'lineas': [{'libro_id': 1, 'cantidad': 0}]}, {'lineas': [{'libro
 r = cliente.post('/orders', json={})
 revisar(r.status_code == 401, 'POST /orders sin token, 401', r.status_code)
 
-print('4. CORS, errores y salud')
+print('4. Redis: revocacion, caida y metricas')
+t_ok = token(1)
+r = cliente.open(RUTA, method=METODO, json=CUERPO, headers=con(t_ok))
+revisar(r.status_code != 401, 'un token con jti no revocado pasa a la autorizacion', r.status_code)
+jti = jwt.decode(t_ok, options={'verify_signature': False})['jti']
+FALSO.setex('jwt:revoked:' + jti, 1200, '1')
+r = cliente.open(RUTA, method=METODO, json=CUERPO, headers=con(t_ok))
+revisar(r.status_code == 401, 'el mismo token, ya revocado en Redis, 401', r.status_code)
+revisar(FALSO.ttl('jwt:revoked:' + jti) == 1200, 'la clave de revocacion lleva TTL')
+FALSO.caido = True
+r = cliente.open(RUTA, method=METODO, json=CUERPO, headers=con(token(1)))
+revisar(r.status_code == 503, 'con Redis caido, un token valido da 503 (falla cerrado)', r.status_code)
+revisar(r.headers.get('Retry-After') is not None, 'y pide reintentar', r.headers)
+revisar(b'redis' not in r.data.lower() and b'Traceback' not in r.data, 'sin detalles internos en el 503')
+r = cliente.open(RUTA, method=METODO, json=CUERPO)
+revisar(r.status_code == 401, 'sin token sigue siendo 401 aunque Redis este caido', r.status_code)
+r = cliente.get('/health')
+revisar(json.loads(r.data)['redis'] == 'caido', '/health informa redis: caido')
+FALSO.caido = False
+r = cliente.get('/health')
+revisar(json.loads(r.data)['redis'] == 'ok', 'y redis: ok cuando vuelve')
+r = cliente.get('/metrics', headers=con(token(1, servicio.ROL_LECTOR)))
+revisar(r.status_code == 403, '/metrics con lector, 403', r.status_code)
+r = cliente.get('/metrics', headers=con(token(2, servicio.ROL_ADMIN)))
+cuerpo_m = json.loads(r.data)
+revisar(r.status_code == 200 and cuerpo_m['contadores'].get('revocaciones_consultadas', 0) >= 1
+        and cuerpo_m['contadores'].get('tokens_revocados_rechazados', 0) >= 1,
+        '/metrics con admin, 200 y con contadores', r.status_code)
+revisar('falsa' not in r.get_data(as_text=True), 'las metricas no exponen la contrasena de Redis')
+FALSO.caido = True
+r = cliente.get('/metrics', headers=con(token(2, servicio.ROL_ADMIN)))
+revisar(r.status_code == 503, '/metrics con Redis caido, 503', r.status_code)
+FALSO.caido = False
+FALSO.set('books:list:x', '[]', ex=60)
+servicio.invalidar_catalogo()
+revisar(not FALSO.datos.get('books:list:x'), 'invalidar_catalogo (stock) borra books:*')
+FALSO.caido = True
+try:
+    servicio.invalidar_catalogo()
+    revisar(True, 'con Redis caido, invalidar_catalogo no rompe la escritura (falla abierto)')
+except Exception as e:
+    revisar(False, 'invalidar_catalogo no debe propagar errores', e)
+FALSO.caido = False
+
+
+print('5. CORS, errores y salud')
 r = cliente.options(RUTA, headers={'Origin': 'https://cliente.example.com',
                                    'Access-Control-Request-Method': METODO})
 revisar(r.headers.get('Access-Control-Allow-Origin') == 'https://cliente.example.com',

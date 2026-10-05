@@ -5,6 +5,7 @@
 #
 # Mismo stack que apps/services/login: Flask + psycopg 3 con pool. PyJWT
 # verifica los tokens que emite login (secreto compartido JWT_SECRET_KEY).
+# redis guarda la revocacion de JWT (jwt:revoked:<jti>) y la cache.
 # Flask-Cors restringe los origenes a CORS_ORIGENES. Gunicorn solo para la VM
 # (ver deploy/libreria-pedidos.service).
 
@@ -13,5 +14,6 @@ Flask-Cors==4.0.1
 psycopg[binary]==3.2.3
 psycopg-pool==3.2.4
 PyJWT==2.9.0
+redis==5.2.1
 python-dotenv==1.0.1
 gunicorn==22.0.0

@@ -27,6 +27,7 @@ from functools import wraps
 
 import jwt
 import psycopg
+import redis
 from dotenv import load_dotenv
 from flask import Flask, g, jsonify, request
 from flask_cors import CORS
@@ -178,6 +179,109 @@ def _fallo_inesperado(error):
 
 
 # -----------------------------------------------------------------------------
+# Redis: capa compartida (revocacion de JWT, cache, metricas). PostgreSQL sigue
+# siendo la fuente de datos; Redis nunca guarda nada que no pueda perderse.
+#
+# POLITICA ANTE UNA CAIDA, que es lo que pide el ejercicio:
+#   - Revocacion y autorizacion FALLAN CERRADO: si no se puede comprobar que un
+#     token no esta revocado, no se acepta (503). Nunca "por si acaso".
+#   - Las lecturas cacheadas FALLAN ABIERTO: se sirven desde PostgreSQL.
+# La URL (con la contrasena) sale de REDIS_URL, del .env; en los logs se enmascara.
+# -----------------------------------------------------------------------------
+REDIS_URL = os.getenv('REDIS_URL', '').strip()
+REDIS_TIMEOUT = float(os.getenv('REDIS_TIMEOUT', '1.5'))
+CACHE_TTL = int(os.getenv('CACHE_TTL_SEGUNDOS', '60'))
+SERVICIO = 'authors'
+
+
+class RedisNoDisponible(Exception):
+    """Redis no esta configurado o no responde a tiempo."""
+
+
+_redis = None
+_errores_locales = 0     # por proceso: sigue contando aunque Redis este caido
+
+
+def _url_enmascarada(url):
+    return re.sub(r'(://[^:@/]*:)[^@]*@', r'\1***@', url)
+
+
+def redis_cliente():
+    global _redis
+    if not REDIS_URL:
+        raise RedisNoDisponible('REDIS_URL no esta configurada')
+    if _redis is None:
+        _redis = redis.Redis.from_url(
+            REDIS_URL, socket_timeout=REDIS_TIMEOUT,
+            socket_connect_timeout=REDIS_TIMEOUT, health_check_interval=30,
+            decode_responses=True)
+        log.info('Cliente Redis creado (%s)', _url_enmascarada(REDIS_URL))
+    return _redis
+
+
+def redis_op(funcion):
+    """Ejecuta funcion(cliente). Cualquier fallo de Redis -> RedisNoDisponible."""
+    global _errores_locales
+    try:
+        return funcion(redis_cliente())
+    except redis.RedisError as error:
+        _errores_locales += 1
+        log.error('Redis no disponible: %s', type(error).__name__)
+        raise RedisNoDisponible() from error
+
+
+def metrica(nombre, cantidad=1):
+    """Contador compartido entre workers. Si Redis falla, no pasa nada."""
+    try:
+        redis_cliente().incrby('metrics:{}:{}'.format(SERVICIO, nombre), cantidad)
+    except (redis.RedisError, RedisNoDisponible):
+        pass
+
+
+@app.errorhandler(RedisNoDisponible)
+def _redis_caido(_error):
+    respuesta = error_respuesta(
+        503, 'No se puede verificar la sesion en este momento. Intenta de nuevo.')
+    respuesta.headers['Retry-After'] = '5'
+    return respuesta
+
+
+def revocado(jti):
+    """True si el jti esta en la lista de revocacion jwt:revoked:<jti>."""
+    metrica('revocaciones_consultadas')
+    if redis_op(lambda c: c.exists('jwt:revoked:' + jti)):
+        metrica('tokens_revocados_rechazados')
+        return True
+    return False
+
+
+def estado_redis():
+    if not REDIS_URL:
+        return 'no configurado'
+    try:
+        redis_cliente().ping()
+        return 'ok'
+    except redis.RedisError:
+        return 'caido'
+
+
+def invalidar_catalogo():
+    """Borra books:* tras escribir algo que se ve en el catalogo. Falla abierto:
+    si Redis no responde, lo viejo caduca solo en CACHE_TTL_SEGUNDOS."""
+    if not REDIS_URL:
+        return
+    try:
+        cliente = redis_cliente()
+        claves = list(cliente.scan_iter(match='books:*', count=200))
+        if claves:
+            cliente.unlink(*claves)
+        metrica('invalidaciones_catalogo')
+    except redis.RedisError as error:
+        log.warning('No se pudo invalidar la cache del catalogo: %s',
+                    type(error).__name__)
+
+
+# -----------------------------------------------------------------------------
 # Autenticacion y autorizacion con el JWT que emite apps/services/login.
 #   401: token ausente, mal firmado, vencido o sin los claims esperados.
 #   403: token valido, pero el rol no alcanza.
@@ -194,12 +298,17 @@ def reclamos_jwt():
     try:
         reclamos = jwt.decode(
             token, JWT_SECRET, algorithms=JWT_ALGORITMOS, issuer=JWT_EMISOR,
-            options={'require': ['exp', 'iss', 'user_id', 'role_id']})
+            options={'require': ['exp', 'iss', 'user_id', 'role_id', 'jti']})
     except jwt.PyJWTError:
         return None
-    user_id, role_id = reclamos['user_id'], reclamos['role_id']
+    user_id, role_id, jti = reclamos['user_id'], reclamos['role_id'], reclamos['jti']
     if (isinstance(user_id, bool) or not isinstance(user_id, int)
-            or role_id not in (ROL_ADMIN, ROL_LECTOR)):
+            or role_id not in (ROL_ADMIN, ROL_LECTOR)
+            or not isinstance(jti, str) or not 8 <= len(jti) <= 64):
+        return None
+    # Ultimo control: que el token no haya sido revocado (logout). Si Redis no
+    # responde, RedisNoDisponible sube hasta el handler y responde 503.
+    if revocado(jti):
         return None
     return reclamos
 
@@ -276,13 +385,43 @@ def entero_positivo(valor):
 
 @app.route('/health', methods=['GET'])
 def salud():
+    # Redis no es dependencia dura de la salud: caido, el servicio sigue "ok"
+    # pero degradado (la app de escritorio lo pinta en amarillo).
+    cuerpo = {'servicio': 'authors', 'version': VERSION, 'estado': 'ok',
+              'redis': estado_redis()}
     try:
         with conexion() as con:
             con.execute('SELECT 1')
-        return jsonify({'servicio': 'authors', 'version': VERSION, 'estado': 'ok'})
     except psycopg.Error:
-        return jsonify({'servicio': 'authors', 'version': VERSION,
-                        'estado': 'sin base de datos'}), 503
+        cuerpo['estado'] = 'sin base de datos'
+        return jsonify(cuerpo), 503
+    return jsonify(cuerpo)
+
+
+@app.route('/metrics', methods=['GET'])
+@requiere_jwt(ROL_ADMIN)
+def metricas():
+    """Contadores compartidos entre workers (en Redis) y estado de Redis."""
+    prefijo = 'metrics:{}:'.format(SERVICIO)
+    contadores = {}
+
+    def leer(cliente):
+        for clave in cliente.scan_iter(match=prefijo + '*'):
+            contadores[clave[len(prefijo):]] = int(cliente.get(clave) or 0)
+
+    redis_op(leer)
+    return jsonify({'servicio': SERVICIO, 'redis': estado_redis(),
+                    'errores_redis_en_este_proceso': _errores_locales,
+                    'contadores': contadores})
+
+
+@app.after_request
+def _invalidar_cache_catalogo(respuesta):
+    """Lo que escribe este servicio se ve en el catalogo (autores, stock): tras
+    cualquier escritura correcta se borra books:* para no servir datos viejos."""
+    if request.method in ('POST', 'PUT', 'PATCH', 'DELETE') and respuesta.status_code < 400:
+        invalidar_catalogo()
+    return respuesta
 
 
 # =============================================================================
