@@ -1,0 +1,33 @@
+1. Login, refresh token y rotacion
+  ok   login devuelve JWT y refresh_token 
+  ok   el refresh entrega JWT y refresh nuevos (rotacion) 
+  ok   el refresh ya usado se rechaza 
+  ok   el JWT anterior de la sesion quedo revocado al renovar 
+  ok   y el JWT nuevo si funciona 
+2. Logout revoca el JWT en todos los servicios
+  ok   antes del logout, el admin entra a /users 
+  ok   POST /logout, 200 
+  ok   el mismo JWT ya no entra a users, 401 
+  ok   ni a pedidos, 401 
+  ok   ni a las escrituras del catalogo, 401 
+  ok   y el refresh_token de esa sesion tampoco sirve 
+3. Cache de GET /books
+  ok   GET /books responde con X-Cache 
+  ok   la segunda lectura es HIT y devuelve lo mismo 
+  ok   GET /books/<isbn> tambien se cachea 
+  ok   /metrics del catalogo cuenta los aciertos 
+  ok   /metrics/catalogo sin token, 401 
+  ok   /metrics/login cuenta los inicios de sesion 
+4. Una escritura de otro servicio invalida la cache del catalogo
+  ok   antes de escribir, la lectura es HIT 
+  ok   tras crear un autor, books:* se invalido (MISS) 
+  ok   limpieza: se borra el autor de prueba 
+5. Semaforos (/health/<servicio>) informan Redis
+  ok   /health/login responde e incluye el estado de Redis 
+  ok   /health/catalogo responde e incluye el estado de Redis 
+  ok   /health/users responde e incluye el estado de Redis 
+  ok   /health/authors responde e incluye el estado de Redis 
+  ok   /health/pedidos responde e incluye el estado de Redis 
+  ok   /health/pagos responde e incluye el estado de Redis 
+
+26 comprobaciones, 0 fallos
