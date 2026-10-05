@@ -238,13 +238,22 @@ en los cuatro `app.py`. Detalle y despliegue: [README.md](README.md), sección
 
 ### Cliente de escritorio (Tkinter)
 
-La app Tk es la **ya existente** `apps/services/soap/cliente/cliente_escritorio.py`,
-ampliada (no hay otra): el clasificador SOAP quedó como una pestaña y se
-añadieron Libros, Autores, Usuarios, Pedidos y Pagos, sesión JWT con renovación
-automática y semáforos. Módulos hermanos: `api_rest.py` (red/JWT/semáforos) y
-`pestanas.py`. Habla por HTTPS (`API_BASE`, `CA_CERT`) a nginx; para eso
-`deploy/nginx-api-tls.conf` expone `/books`, `/concepts` y `/health/<servicio>`.
-Pruebas sin pantalla: `apps/services/soap/tests/pruebas_cliente_rest.py`.
+La app Tk es la **ya existente** `apps/services/soap/cliente/cliente_escritorio.py`
+(no hay otra), rediseñada como **tienda de libros** (2026-10-05): catálogo en
+cuadrícula con **portadas**, detalle, carrito y compra (pedido + pago simulado),
+tema crema/verde/burdeos (`ttk` con el tema `clam`). Las pestañas CRUD de antes
+quedan en el "panel" (Mi cuenta para el lector: Usuarios/Pedidos/Pagos;
+Administración para el admin: todo + clasificador SOAP). Semáforos en el pie.
+Módulos hermanos: `api_rest.py` (red/JWT/semáforos/`descargar` de portadas),
+`tienda.py` (tema, tarjetas, detalle, carrito, `DialogoPago`) y `pestanas.py`.
+Habla por HTTPS (`API_BASE`, `CA_CERT`) a nginx: `deploy/nginx-api-tls.conf` expone
+`/books`, `/concepts`, `/health/<servicio>`, `/metrics/<servicio>` y
+**`/uploads/<uuid>.png|jpg|webp`** (portadas; el catálogo sólo devuelve el nombre
+del archivo en `images[].file`). Las portadas sembradas son PNG de 400×600; Pillow
+es opcional. El catálogo no expone `id`: la compra lo resuelve por ISBN con
+`GET /orders/books`; `GET /authors/books` hace lo mismo para vincular autores.
+Pruebas sin pantalla: `apps/services/soap/tests/pruebas_cliente_rest.py`. La parte
+visual sólo se puede verificar a mano (no hay captura de pantalla desde Claude).
 
 ### Datos de la VM que cuestan averiguar
 

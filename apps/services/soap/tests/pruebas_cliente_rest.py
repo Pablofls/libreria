@@ -102,6 +102,12 @@ class Manejador(BaseHTTPRequestHandler):
             servicio = base.split('/')[-1]
             estado, cuerpo = ESTADO['health'].get(servicio, (200, {'estado': 'ok', 'redis': 'ok'}))
             return self._responder(estado, cuerpo)
+        if base.startswith('/uploads/'):
+            cuerpo = b'\x89PNG' + b'x' * (3_000_000 if 'grande' in base else 20)
+            self.send_response(200 if 'falta' not in base else 404)
+            self.send_header('Content-Length', str(len(cuerpo)))
+            self.end_headers()
+            return self.wfile.write(cuerpo)
         # rutas de datos: exigen un JWT no revocado
         token = (self.headers.get('Authorization') or '')[7:]
         if token in ESTADO['revocados'] or not token:
@@ -250,7 +256,22 @@ except api_rest.ErrorApi as e:
     revisar(e.estado == 0 and 'conectar' in e.mensaje and 'Traceback' not in e.mensaje, 'sin red: mensaje claro, no una excepcion de urllib')
 revisar(api_rest.probar_tcp(BASE) is True and api_rest.probar_tcp('http://127.0.0.1:1') is False, 'probar_tcp (semaforo del SOAP)')
 
-print('7. Seguridad')
+print('7. Portadas (recursos publicos)')
+c = nuevo()
+revisar(c.descargar('/uploads/a.png').startswith(b'\x89PNG'), 'descarga una portada sin JWT')
+revisar(not [v for v in ESTADO['visto'] if v[1] == '/uploads/a.png' and v[2]], 'y no manda Authorization')
+for ruta, texto in (('/uploads/falta.png', 'no se encontro'), ('/uploads/grande.png', 'demasiado grande')):
+    try:
+        c.descargar(ruta)
+        revisar(False, 'debe fallar ' + ruta)
+    except api_rest.ErrorApi as e:
+        revisar(texto in e.mensaje.lower(), '{}: ErrorApi con mensaje claro'.format(ruta), e.mensaje)
+try:
+    api_rest.ClienteApi(base='http://127.0.0.1:1').descargar('/uploads/a.png')
+except api_rest.ErrorApi as e:
+    revisar(e.estado == 0, 'sin red: ErrorApi(0), no una excepcion de urllib')
+
+print('8. Seguridad')
 c = nuevo()
 revisar(isinstance(c._contexto, type(None)), 'http de prueba: sin contexto TLS')
 https = api_rest.ClienteApi(base='https://127.0.0.1:1')

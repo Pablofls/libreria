@@ -238,6 +238,23 @@ class ClienteApi:
     def get(self, ruta, autenticada=True):
         return self.peticion('GET', ruta, autenticada=autenticada)
 
+    # --- Recursos publicos (portadas) -----------------------------------------
+    def descargar(self, ruta, limite=2_000_000):
+        """Bytes de un recurso publico, sin JWT (las portadas). Mismo canal TLS
+        verificado que el resto; tope de tamano para no leer algo desmedido."""
+        peticion = urllib.request.Request(self.base + ruta, headers={'Accept': 'image/*'})
+        try:
+            with urllib.request.urlopen(peticion, timeout=TIMEOUT,
+                                        context=self._contexto) as r:
+                datos = r.read(limite + 1)
+        except urllib.error.HTTPError as error:
+            raise ErrorApi(error.code, 'No se encontro la imagen.')
+        except (urllib.error.URLError, ssl.SSLError, socket.timeout, OSError):
+            raise ErrorApi(0, 'No se pudo descargar la imagen.')
+        if len(datos) > limite:
+            raise ErrorApi(0, 'La imagen es demasiado grande.')
+        return datos
+
     # --- Semaforos -----------------------------------------------------------
     def semaforo(self, servicio):
         """(color, detalle, redis) de un servicio, sin autenticacion.

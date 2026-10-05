@@ -44,6 +44,8 @@ from xml.etree import ElementTree as ET
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from api_rest import API_BASE, SERVICIOS, ClienteApi, ErrorApi, probar_tcp  # noqa: E402
 from pestanas import PESTANAS                                                # noqa: E402
+from tienda import (BORDE, GRIS, PAPEL, VERDE, FUENTE_MARCA, Carrito,        # noqa: E402
+                    PantallaCarrito, PantallaDetalle, PantallaTienda, Portadas, aplicar_estilo)
 
 ENDPOINT = os.getenv('ENDPOINT', 'http://127.0.0.1:5001/soap')
 TIPO_CLIENTE = 'escritorio-tkinter'
@@ -194,7 +196,7 @@ class Aplicacion(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title('Libreria Online — Cliente de escritorio')
-        self.geometry('1040x760')
+        self.geometry('1180x820')
         self.conceptos = []
         self.api = ClienteApi()
         self._cola = queue.Queue()
@@ -202,12 +204,28 @@ class Aplicacion(tk.Tk):
         self._sesion_ui = False
         self.luces = {}                      # nombre -> (canvas, figura, detalle)
 
-        self._barra_superior()
-        self.pie_global = ttk.Label(self, text='Servidor: {}'.format(API_BASE),
-                                    foreground='#555', padding=(10, 3))
-        self.pie_global.pack(side='bottom', fill='x')
-        self.cuaderno = ttk.Notebook(self)
-        self.cuaderno.pack(fill='both', expand=True, padx=6, pady=(0, 2))
+        aplicar_estilo(self)
+        self.minsize(980, 640)
+        self.carrito = Carrito()
+        self.portadas = Portadas(self)
+        self.pantalla = 'tienda'
+        self._encabezado()
+        self._pie_estado()
+        contenedor = tk.Frame(self, bg=PAPEL)
+        contenedor.pack(fill='both', expand=True)
+        contenedor.grid_rowconfigure(0, weight=1)
+        contenedor.grid_columnconfigure(0, weight=1)
+        self.pantallas = {'tienda': PantallaTienda(self, contenedor),
+                          'detalle': PantallaDetalle(self, contenedor),
+                          'carrito': PantallaCarrito(self, contenedor),
+                          'panel': ttk.Frame(contenedor)}
+        for pantalla in self.pantallas.values():
+            pantalla.grid(row=0, column=0, sticky='nsew')
+        # El "panel" es lo que antes era toda la aplicacion: las pestañas de
+        # administracion y el clasificador SOAP, ahora detras de Mi cuenta /
+        # Administracion segun el rol.
+        self.cuaderno = ttk.Notebook(self.pantallas['panel'])
+        self.cuaderno.pack(fill='both', expand=True, padx=10, pady=8)
         self.pestanas = []
         for titulo, clase in PESTANAS:
             pestana = clase(self, self.cuaderno)
@@ -217,6 +235,7 @@ class Aplicacion(tk.Tk):
 
         marco = ttk.Frame(self.cuaderno, padding=12)
         self.cuaderno.add(marco, text='Clasificador Cloud')
+        self.tab_soap = marco
 
         datos = ttk.LabelFrame(marco, text='Clasificador', padding=10)
         datos.pack(fill='x')
@@ -267,8 +286,10 @@ class Aplicacion(tk.Tk):
         self.estado.pack(fill='x', pady=(8, 0))
 
         self.protocol('WM_DELETE_WINDOW', self._salir)
+        self.mostrar_pantalla('tienda')
         self.after(80, self._vaciar_cola)
         self._sesion_cambio()
+        self.pantallas['tienda'].cargar()
         self._sondear()
         self.after(30000, self._mantener_sesion)
 
@@ -392,24 +413,88 @@ class Aplicacion(tk.Tk):
     # =========================================================================
     COLORES = {'verde': '#2e9e44', 'amarillo': '#e0a800', 'rojo': '#c62828', 'gris': '#9e9e9e'}
 
-    def _barra_superior(self):
-        barra = ttk.Frame(self, padding=(10, 6))
-        barra.pack(side='top', fill='x')
-        self.boton_sesion = ttk.Button(barra, text='Iniciar sesion', command=self._clic_sesion)
-        self.boton_sesion.pack(side='left')
-        self.etiqueta_sesion = ttk.Label(barra, text='', padding=(8, 0))
-        self.etiqueta_sesion.pack(side='left')
-        luces = ttk.Frame(barra)
-        luces.pack(side='right')
+    PIE = '#efe6d2'
+
+    def _encabezado(self):
+        cab = tk.Frame(self, bg=VERDE)
+        cab.pack(side='top', fill='x')
+        marca = tk.Label(cab, text='Libreria Online', bg=VERDE, fg='white', font=FUENTE_MARCA, cursor='hand2')
+        marca.pack(side='left', padx=(18, 22), pady=10)
+        marca.bind('<Button-1>', lambda _e: self.mostrar_pantalla('tienda'))
+        self.busqueda = tk.StringVar()
+        entrada = ttk.Entry(cab, textvariable=self.busqueda, width=36)
+        entrada.pack(side='left', ipady=3)
+        entrada.bind('<Return>', self.buscar)
+        ttk.Button(cab, text='Buscar', style='Nav.TButton', command=self.buscar).pack(side='left', padx=6)
+        # De derecha a izquierda: sesion, nombre, [panel], carrito, catalogo.
+        self.boton_sesion = ttk.Button(cab, text='Iniciar sesion', style='Nav.TButton', command=self._clic_sesion)
+        self.boton_sesion.pack(side='right', padx=(4, 16))
+        self.etiqueta_sesion = tk.Label(cab, text='', bg=VERDE, fg='#d8e4df', font=('Helvetica', 10))
+        self.etiqueta_sesion.pack(side='right', padx=6)
+        self.boton_carrito = ttk.Button(cab, text='Carrito (0)', style='Nav.TButton',
+                                        command=lambda: self.mostrar_pantalla('carrito'))
+        self.boton_carrito.pack(side='right', padx=4)
+        ttk.Button(cab, text='Catalogo', style='Nav.TButton',
+                   command=lambda: self.mostrar_pantalla('tienda')).pack(side='right', padx=4)
+        self.boton_panel = ttk.Button(cab, text='Mi cuenta', style='Nav.TButton',
+                                      command=lambda: self.mostrar_pantalla('panel'))
+
+    def _pie_estado(self):
+        pie = tk.Frame(self, bg=self.PIE, highlightbackground=BORDE, highlightthickness=1)
+        pie.pack(side='bottom', fill='x')
+        self.pie_global = tk.Label(pie, text='Servidor: {}'.format(API_BASE), bg=self.PIE, fg=GRIS,
+                                   anchor='w', padx=12, pady=4, font=('Helvetica', 10))
+        self.pie_global.pack(side='left')
+        luces = tk.Frame(pie, bg=self.PIE)
+        luces.pack(side='right', padx=8)
+        tk.Label(luces, text='Estado del sistema:', bg=self.PIE, fg=GRIS, font=('Helvetica', 10)).pack(side='left', padx=(0, 4))
         for nombre in SERVICIOS + ('redis', 'soap'):
-            marco = ttk.Frame(luces)
-            marco.pack(side='left', padx=5)
-            lienzo = tk.Canvas(marco, width=14, height=14, highlightthickness=0)
+            marco = tk.Frame(luces, bg=self.PIE)
+            marco.pack(side='left', padx=4)
+            lienzo = tk.Canvas(marco, width=14, height=14, highlightthickness=0, bg=self.PIE)
             figura = lienzo.create_oval(2, 2, 13, 13, fill=self.COLORES['gris'], outline='#666')
             lienzo.pack(side='left')
-            ttk.Label(marco, text=nombre).pack(side='left', padx=(3, 0))
+            tk.Label(marco, text=nombre, bg=self.PIE, fg=GRIS, font=('Helvetica', 10)).pack(side='left', padx=(3, 0))
             self.luces[nombre] = [lienzo, figura, 'Sin datos todavia.']
             lienzo.bind('<Button-1>', lambda _e, n=nombre: messagebox.showinfo(n, self.luces[n][2]))
+
+    # --- Navegacion y tienda ---------------------------------------------------
+    def mostrar_pantalla(self, nombre):
+        self.pantalla = nombre
+        self.pantallas[nombre].tkraise()
+        if nombre == 'carrito':
+            self.pantallas['carrito'].refrescar()
+        elif nombre == 'panel':
+            self._pestana_elegida()
+
+    def buscar(self, _evento=None):
+        self.mostrar_pantalla('tienda')
+        self.pantallas['tienda'].cargar(self.busqueda.get())
+
+    def recargar_tienda(self):
+        self.pantallas['tienda'].cargar()
+
+    def ver_libro(self, libro):
+        self.pantallas['detalle'].mostrar(libro)
+        self.mostrar_pantalla('detalle')
+
+    def agregar_al_carrito(self, libro, cantidad=1):
+        antes = self.carrito.lineas.get(libro['isbn'], {}).get('cantidad', 0)
+        ahora = self.carrito.agregar(libro, cantidad)
+        self.actualizar_carrito()
+        if ahora == 0:
+            return messagebox.showwarning('Sin existencias', '"{}" esta agotado.'.format(libro['title']))
+        if ahora < antes + cantidad:
+            return self.pie('Solo hay {} existencias de "{}".'.format(libro['stock'], libro['title']), '#b00')
+        self.pie('"{}" agregado al carrito.'.format(libro['title']), '#060')
+
+    def actualizar_carrito(self):
+        self.boton_carrito.configure(text='Carrito ({})'.format(self.carrito.cantidad_total()))
+        if self.pantalla == 'carrito':
+            self.pantallas['carrito'].refrescar()
+
+    def pedir_login(self, al_entrar=None):
+        self._dialogo_login(al_entrar)
 
     def _pintar_luz(self, nombre, color, detalle):
         lienzo, figura, _ = self.luces[nombre]
@@ -515,16 +600,18 @@ class Aplicacion(tk.Tk):
 
     def _clic_sesion(self):
         if self.api.sesion_activa:
-            self.en_hilo(self.api.cerrar_sesion, lambda _: self._sesion_cambio())
+            self.en_hilo(self.api.cerrar_sesion,
+                         lambda _: (self._sesion_cambio(), self.mostrar_pantalla('tienda')))
         else:
             self._dialogo_login()
 
-    def _dialogo_login(self):
+    def _dialogo_login(self, al_entrar=None):
         ventana = tk.Toplevel(self)
         ventana.title('Iniciar sesion')
+        ventana.configure(bg=PAPEL)
         ventana.transient(self)
         ventana.resizable(False, False)
-        marco = ttk.Frame(ventana, padding=14)
+        marco = ttk.Frame(ventana, padding=18)
         marco.pack()
         correo, clave = tk.StringVar(), tk.StringVar()
         ttk.Label(marco, text='Correo:').grid(row=0, column=0, sticky='w', pady=3)
@@ -547,22 +634,39 @@ class Aplicacion(tk.Tk):
                 mensaje.configure(text=error.texto() if isinstance(error, ErrorApi)
                                   else 'No se pudo iniciar sesion.', foreground='#b00')
             self.en_hilo(lambda: self.api.iniciar_sesion(usuario, secreto),
-                         lambda _: (ventana.destroy(), self._sesion_cambio()), fallo)
+                         lambda _: (ventana.destroy(), self._sesion_cambio(),
+                                    al_entrar() if al_entrar else None), fallo)
         ttk.Button(marco, text='Entrar', command=entrar).grid(row=3, column=1, sticky='e', pady=(10, 0))
         ventana.bind('<Return>', entrar)
         entrada.focus_set()
         ventana.grab_set()
 
+    LECTOR_VE = ('Usuarios', 'Pedidos', 'Pagos')
+
     def _sesion_cambio(self):
         activa = self.api.sesion_activa
         self._sesion_ui = activa
+        rol = self.api.usuario.get('rol') if activa else None
         if activa:
             u = self.api.usuario
-            self.etiqueta_sesion.configure(text='{} ({})'.format(u.get('nombre') or u.get('email'), u.get('rol')))
+            self.etiqueta_sesion.configure(text=u.get('nombre') or u.get('email'))
             self.boton_sesion.configure(text='Cerrar sesion')
+            self.boton_panel.configure(text='Administracion' if rol == 'admin' else 'Mi cuenta')
+            self.boton_panel.pack(side='right', padx=4, before=self.boton_carrito)
         else:
-            self.etiqueta_sesion.configure(text='Sin sesion: solo se leen libros y autores')
+            self.etiqueta_sesion.configure(text='')
             self.boton_sesion.configure(text='Iniciar sesion')
+            self.boton_panel.pack_forget()
+            if self.pantalla == 'panel':
+                self.mostrar_pantalla('tienda')
+        # Cada rol ve solo lo suyo. Ocultar es ayuda visual: el servidor decide.
+        for (titulo, _clase), pestana in zip(PESTANAS, self.pestanas):
+            ver = rol == 'admin' or (rol == 'lector' and titulo in self.LECTOR_VE)
+            self.cuaderno.tab(pestana, state='normal' if ver else 'hidden')
+        self.cuaderno.tab(self.tab_soap, state='normal' if rol == 'admin' else 'hidden')
+        visibles = [p for p in self.cuaderno.tabs() if self.cuaderno.tab(p, 'state') == 'normal']
+        if visibles and self.cuaderno.select() not in visibles:
+            self.cuaderno.select(visibles[0])
         for pestana in self.pestanas:
             pestana.sesion_cambio()
 

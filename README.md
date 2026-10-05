@@ -786,15 +786,28 @@ sin red) y `tests/pruebas_redis.py` contra la VM; con Redis parado, la misma
 prueba con `REDIS_CAIDO=1` comprueba la falla segura. Ajustes de Redis:
 [deploy/redis-hardening.conf.example](deploy/redis-hardening.conf.example).
 
-### Cliente de escritorio (Tkinter)
+### Cliente de escritorio (Tkinter): la librería online
 
 [apps/services/soap/cliente/cliente_escritorio.py](apps/services/soap/cliente/cliente_escritorio.py)
-es la app de escritorio ya existente, ampliada: el clasificador SOAP sigue como
-una pestaña y se suman **Libros, Autores, Usuarios, Pedidos y Pagos** (tabla +
-formulario, CRUD según el rol), inicio y cierre de sesión (el `/logout` revoca el
-token) y **semáforos** de cada servicio, de Redis y del SOAP, cada 10 s: verde =
-ok, amarillo = funciona degradado (Redis caído), rojo = no responde. Renueva el
-JWT sola antes de que caduque.
+es la app de escritorio ya existente, convertida en una **tienda de libros**:
+
+- **Catálogo** (pantalla principal): cuadrícula de tarjetas con **portada**, título,
+  autores, precio y disponibilidad; buscador (título, ISBN o autor), orden por
+  título, precio o existencias.
+- **Detalle** del libro con portada grande, ficha y los conceptos que explica.
+- **Carrito** y **compra**: al finalizar (pide iniciar sesión) crea el pedido y
+  abre el pago simulado. El precio lo toma el servidor de pedidos de la base de
+  datos; lo que se ve en pantalla es informativo.
+- **Mi cuenta** (lector: Usuarios, Pedidos, Pagos) y **Administración** (admin: además
+  Libros, Autores y el clasificador SOAP): las pestañas CRUD de antes, detrás de
+  un botón del encabezado y según el rol.
+- Abajo, el **estado del sistema**: semáforos de cada servicio, de Redis y del SOAP
+  cada 10 s (verde = ok, amarillo = degradado por Redis caído, rojo = no responde).
+  El JWT se renueva solo antes de caducar.
+
+Las portadas se piden por HTTPS a `/uploads/<uuid>.png` (nginx, ver
+`deploy/nginx-api-tls.conf`) y se guardan en memoria. Son PNG; **Pillow es opcional**
+(`pip install pillow`): con él se reescalan finas y se aceptan JPG/WebP.
 
 ```bash
 API_BASE=https://34.51.108.167 CA_CERT=~/libreria-api.crt python3 apps/services/soap/cliente/cliente_escritorio.py
@@ -802,9 +815,10 @@ API_BASE=https://34.51.108.167 CA_CERT=~/libreria-api.crt python3 apps/services/
 
 `CA_CERT` es la copia del certificado autofirmado (se baja con `gcloud compute scp`,
 ver [docs/GCP_COMMANDS.md](docs/GCP_COMMANDS.md)); la verificación nunca se
-desactiva. En macOS hace falta Tk (`brew install python-tk`). El código está
-partido en `api_rest.py` (red, JWT, semáforos), `pestanas.py` (una clase por
-pestaña) y `cliente_escritorio.py`; las pruebas sin pantalla, en
+desactiva. En macOS hace falta Tk (`brew install python-tk`). Módulos:
+`api_rest.py` (red, JWT, semáforos, descarga de portadas), `tienda.py` (tema, tarjetas,
+detalle, carrito, pago), `pestanas.py` (CRUD de administración) y
+`cliente_escritorio.py`. Pruebas sin pantalla:
 `apps/services/soap/tests/pruebas_cliente_rest.py`.
 
 ### Microservicio de catálogo
