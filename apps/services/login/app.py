@@ -28,18 +28,22 @@ db/05_triggers.sql. Este servicio escribe SOLO en `personas` y deja que el
 disparador componga el nombre plano: si lo escribiera el mismo, las dos
 representaciones podrian quedar en desacuerdo.
 """
+import hashlib
 import json
 import logging
 import os
 import re
+import secrets
 import smtplib
 import socket
+import uuid
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
 import jwt
 import psycopg
+import redis
 from dotenv import load_dotenv
 from flask import Flask, Response, request, session, url_for
 from psycopg.rows import dict_row
@@ -119,6 +123,14 @@ JWT_EXPIRA_MINUTOS = int(os.getenv('JWT_EXPIRA_MINUTOS', '20'))
 # vive aqui, sin tabla nueva, y los servicios que verifican el token autorizan
 # por este valor. Un rol que no este en el mapa no recibe token.
 ROLES_ID = {'admin': 1, 'lector': 2}
+
+# Sesion y refresh token en Redis. Mismo TTL para los dos: la sesion vive lo que
+# vive su refresh token (jornada de 8 h por omision); el JWT de acceso dura 20
+# minutos y se renueva con el refresh antes de caducar.
+SESION_TTL_SEGUNDOS = int(float(os.getenv('SESION_TTL_HORAS', '8')) * 3600)
+# Limitador de intentos de login, compartido por los workers a traves de Redis.
+LOGIN_MAX_INTENTOS = int(os.getenv('LOGIN_MAX_INTENTOS', '5'))
+LOGIN_VENTANA_SEGUNDOS = int(os.getenv('LOGIN_VENTANA_MINUTOS', '15')) * 60
 
 app = Flask(__name__)
 app.secret_key = CLAVE_SESION
@@ -237,6 +249,8 @@ def sesion_a_xml(datos):
         _usuario_a_xml(raiz, datos['usuario'])
     if datos.get('token'):
         _hijo(raiz, 'token', datos['token'])
+    if datos.get('refresh_token'):
+        _hijo(raiz, 'refresh_token', datos['refresh_token'])
     if datos.get('mensaje'):
         _hijo(raiz, 'mensaje', datos['mensaje'])
     return raiz
@@ -595,6 +609,109 @@ def contrasena_correcta(password, hash_guardado):
         return False
 
 
+# -----------------------------------------------------------------------------
+# Redis: capa compartida (revocacion de JWT, cache, metricas). PostgreSQL sigue
+# siendo la fuente de datos; Redis nunca guarda nada que no pueda perderse.
+#
+# POLITICA ANTE UNA CAIDA, que es lo que pide el ejercicio:
+#   - Revocacion y autorizacion FALLAN CERRADO: si no se puede comprobar que un
+#     token no esta revocado, no se acepta (503). Nunca "por si acaso".
+#   - Las lecturas cacheadas FALLAN ABIERTO: se sirven desde PostgreSQL.
+# La URL (con la contrasena) sale de REDIS_URL, del .env; en los logs se enmascara.
+# -----------------------------------------------------------------------------
+REDIS_URL = os.getenv('REDIS_URL', '').strip()
+REDIS_TIMEOUT = float(os.getenv('REDIS_TIMEOUT', '1.5'))
+CACHE_TTL = int(os.getenv('CACHE_TTL_SEGUNDOS', '60'))
+SERVICIO = 'login'
+
+
+class RedisNoDisponible(Exception):
+    """Redis no esta configurado o no responde a tiempo."""
+
+
+_redis = None
+_errores_locales = 0     # por proceso: sigue contando aunque Redis este caido
+
+
+def _url_enmascarada(url):
+    return re.sub(r'(://[^:@/]*:)[^@]*@', r'\1***@', url)
+
+
+def redis_cliente():
+    global _redis
+    if not REDIS_URL:
+        raise RedisNoDisponible('REDIS_URL no esta configurada')
+    if _redis is None:
+        _redis = redis.Redis.from_url(
+            REDIS_URL, socket_timeout=REDIS_TIMEOUT,
+            socket_connect_timeout=REDIS_TIMEOUT, health_check_interval=30,
+            decode_responses=True)
+        log.info('Cliente Redis creado (%s)', _url_enmascarada(REDIS_URL))
+    return _redis
+
+
+def redis_op(funcion):
+    """Ejecuta funcion(cliente). Cualquier fallo de Redis -> RedisNoDisponible."""
+    global _errores_locales
+    try:
+        return funcion(redis_cliente())
+    except redis.RedisError as error:
+        _errores_locales += 1
+        log.error('Redis no disponible: %s', type(error).__name__)
+        raise RedisNoDisponible() from error
+
+
+def metrica(nombre, cantidad=1):
+    """Contador compartido entre workers. Si Redis falla, no pasa nada."""
+    try:
+        redis_cliente().incrby('metrics:{}:{}'.format(SERVICIO, nombre), cantidad)
+    except (redis.RedisError, RedisNoDisponible):
+        pass
+
+
+@app.errorhandler(RedisNoDisponible)
+def _redis_caido(_error):
+    respuesta = error_respuesta(
+        503, 'No se puede verificar la sesion en este momento. Intenta de nuevo.')
+    respuesta.headers['Retry-After'] = '5'
+    return respuesta
+
+
+def revocado(jti):
+    """True si el jti esta en la lista de revocacion jwt:revoked:<jti>."""
+    metrica('revocaciones_consultadas')
+    if redis_op(lambda c: c.exists('jwt:revoked:' + jti)):
+        metrica('tokens_revocados_rechazados')
+        return True
+    return False
+
+
+def estado_redis():
+    if not REDIS_URL:
+        return 'no configurado'
+    try:
+        redis_cliente().ping()
+        return 'ok'
+    except redis.RedisError:
+        return 'caido'
+
+
+def invalidar_catalogo():
+    """Borra books:* tras escribir algo que se ve en el catalogo. Falla abierto:
+    si Redis no responde, lo viejo caduca solo en CACHE_TTL_SEGUNDOS."""
+    if not REDIS_URL:
+        return
+    try:
+        cliente = redis_cliente()
+        claves = list(cliente.scan_iter(match='books:*', count=200))
+        if claves:
+            cliente.unlink(*claves)
+        metrica('invalidaciones_catalogo')
+    except redis.RedisError as error:
+        log.warning('No se pudo invalidar la cache del catalogo: %s',
+                    type(error).__name__)
+
+
 # =============================================================================
 # JWT. Firmado HS256 con JWT_SECRET, el secreto compartido con el
 # microservicio de catalogo: quien lo tiene puede firmar y verificar, sin
@@ -604,18 +721,72 @@ def contrasena_correcta(password, hash_guardado):
 # token con "alg":"none" no se cuele.
 # =============================================================================
 def generar_jwt(usuario):
+    return emitir_jwt(usuario)[0]
+
+
+def emitir_jwt(usuario):
+    """(token, jti, exp). El jti identifica este token para poder revocarlo."""
     ahora = datetime.now(timezone.utc)
+    jti = uuid.uuid4().hex
+    exp = ahora + timedelta(minutes=JWT_EXPIRA_MINUTOS)
     payload = {
         'sub': str(usuario['id']),
         'user_id': usuario['id'],
         'role_id': ROLES_ID[usuario['rol']],
         'email': usuario['email'],
         'rol': usuario['rol'],
+        'jti': jti,
         'iss': JWT_EMISOR,
         'iat': ahora,
-        'exp': ahora + timedelta(minutes=JWT_EXPIRA_MINUTOS),
+        'exp': exp,
     }
-    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITMO)
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITMO), jti, int(exp.timestamp())
+
+
+# =============================================================================
+# Sesion y refresh token en Redis
+#   session:<sid>   {user_id, rol, jti, jti_exp, refresh_hash}   TTL de sesion
+#   refresh:<hash>  {user_id, sid}                               TTL de sesion
+# El refresh token es opaco (256 bits al azar) y en Redis solo se guarda su hash
+# SHA-256: un volcado de Redis no permite renovar sesiones. Es de UN SOLO USO:
+# cada renovacion entrega uno nuevo y borra el anterior.
+# =============================================================================
+def _hash_refresh(token):
+    return hashlib.sha256(token.encode('utf-8')).hexdigest()
+
+
+def _segundos_restantes(exp):
+    return max(0, int(exp - datetime.now(timezone.utc).timestamp()))
+
+
+def _revocar_jti(cliente, jti, exp):
+    restante = _segundos_restantes(exp)
+    if restante > 0:                       # ya vencido: no hay nada que revocar
+        cliente.setex('jwt:revoked:' + jti, restante, '1')
+
+
+def abrir_sesion(usuario, ttl=None, sid=None):
+    """Crea (o renueva con el mismo sid) sesion + refresh + JWT.
+
+    Devuelve (sid, refresh_token, jwt). Si Redis falla, RedisNoDisponible: sin
+    donde guardar la sesion no se entrega ningun token.
+    """
+    sid = sid or secrets.token_urlsafe(24)
+    ttl = ttl or SESION_TTL_SEGUNDOS
+    refresh = secrets.token_urlsafe(32)
+    token, jti, exp = emitir_jwt(usuario)
+    sesion = {'user_id': usuario['id'], 'rol': usuario['rol'], 'jti': jti,
+              'jti_exp': exp, 'refresh_hash': _hash_refresh(refresh)}
+    redis_op(lambda c: c.setex('session:' + sid, ttl, json.dumps(sesion)))
+    redis_op(lambda c: c.setex('refresh:' + sesion['refresh_hash'], ttl,
+                               json.dumps({'user_id': usuario['id'], 'sid': sid})))
+    return sid, refresh, token
+
+
+def _clave_intentos(email):
+    # Con la IP de la conexion TCP, no de una cabecera: el servicio tambien
+    # escucha directo en su puerto y una cabecera X-Forwarded-For se falsifica.
+    return 'ratelimit:login:{}:{}'.format(request.remote_addr, email)
 
 
 # =============================================================================
@@ -656,6 +827,18 @@ def iniciar_sesion():
     if not email or not password:
         return error_respuesta(400, 'Faltan el correo o la contrasena.')
 
+    # Limitador de intentos en Redis (compartido por los workers). Si Redis no
+    # responde no se puede ni contar ni abrir sesion: 503, no se deja pasar.
+    clave = _clave_intentos(email)
+    intentos = int(redis_op(lambda c: c.get(clave)) or 0)
+    if intentos >= LOGIN_MAX_INTENTOS:
+        metrica('login_bloqueados')
+        log.warning('Demasiados intentos de inicio de sesion para %r', email)
+        respuesta = error_respuesta(
+            429, 'Demasiados intentos. Espera unos minutos para volver a intentarlo.')
+        respuesta.headers['Retry-After'] = str(LOGIN_VENTANA_SEGUNDOS)
+        return respuesta
+
     fila = buscar_por_email(email)
     guardado = buscar_hash(email) if fila else None
 
@@ -668,55 +851,114 @@ def iniciar_sesion():
     # endpoint en un comprobador de que correos tienen cuenta aqui.
     if not fila or not valida or not fila['activo']:
         log.info('Inicio de sesion fallido para %r', email)
+        if redis_op(lambda c: c.incrby(clave, 1)) == 1:
+            redis_op(lambda c: c.expire(clave, LOGIN_VENTANA_SEGUNDOS))
         return error_respuesta(401, 'Correo o contrasena incorrectos.')
 
     usuario = _a_usuario(fila)
+    sid, refresh, token = abrir_sesion(usuario)
+    redis_op(lambda c: c.delete(clave))
     session.clear()
-    # Renovar el identificador de sesion al autenticar evita la fijacion de
-    # sesion: una cookie obtenida antes del login no sirve despues.
-    session['usuario_id'] = usuario['id']
-    session['rol'] = usuario['rol']
+    # La cookie solo lleva el identificador; los datos de la sesion viven en
+    # Redis. Renovarlo al autenticar evita la fijacion de sesion.
+    session['sid'] = sid
     session.permanent = False
 
+    metrica('login_correctos')
     log.info('Sesion iniciada para el usuario %s', usuario['id'])
     return responder('sesion', {'autenticada': True, 'usuario': usuario,
-                                'token': generar_jwt(usuario),
+                                'token': token, 'refresh_token': refresh,
+                                'expira_en': JWT_EXPIRA_MINUTOS * 60,
                                 'mensaje': 'Sesion iniciada.'})
 
 
 @app.route('/token/refresh', methods=['POST'])
 def renovar_token():
-    """Cambia un JWT aun vigente por uno nuevo, antes de que caduque.
+    """Cambia un refresh token por un JWT nuevo y un refresh token nuevo.
 
-    Un token vencido no se renueva: hay que volver a /login. La cuenta se
-    consulta de nuevo, asi que una cuenta desactivada o con otro rol deja de
-    recibir tokens aqui aunque el viejo siga firmado.
+    El cliente lo llama ANTES de que venza el JWT (a los ~19 minutos). El
+    refresh es de un solo uso; el JWT anterior de la sesion se revoca. Si la
+    cuenta se desactivo o cambio de rol, se nota aqui: se vuelve a leer.
     """
-    cabecera = request.headers.get('Authorization', '')
-    token = cabecera[7:].strip() if cabecera.startswith('Bearer ') else ''
-    if not token:
-        return error_respuesta(401, 'Falta el token.')
-    try:
-        reclamos = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITMO],
-                              issuer=JWT_EMISOR)
-        fila = buscar_por_id(int(reclamos['user_id']))
-    except (jwt.PyJWTError, KeyError, TypeError, ValueError):
-        return error_respuesta(401, 'Token ausente, invalido o vencido.')
+    refresh = datos_entrantes().get('refresh_token')
+    if not isinstance(refresh, str) or not refresh:
+        return error_respuesta(400, 'Falta el refresh_token.')
+    clave = 'refresh:' + _hash_refresh(refresh)
+    registro = redis_op(lambda c: c.get(clave))
+    # DELETE devuelve cuantas claves borro: solo UNA peticion simultanea con el
+    # mismo refresh gana; la otra ve 0 y se rechaza (uso unico).
+    if not registro or redis_op(lambda c: c.delete(clave)) != 1:
+        metrica('refresh_rechazados')
+        return error_respuesta(401, 'Refresh token invalido, usado o vencido.')
+    info = json.loads(registro)
+    sid = info['sid']
+    crudo = redis_op(lambda c: c.get('session:' + sid))
+    ttl = redis_op(lambda c: c.ttl('session:' + sid))
+    if not crudo or ttl is None or ttl <= 0:
+        return error_respuesta(401, 'La sesion ya no es valida.')
+    sesion = json.loads(crudo)
+    fila = buscar_por_id(info['user_id'])
     if not fila or not fila['activo']:
+        redis_op(lambda c: c.delete('session:' + sid))
         return error_respuesta(401, 'La cuenta ya no es valida.')
     usuario = _a_usuario(fila)
+    # Se revoca el JWT anterior de la sesion y se emite otro. La sesion conserva
+    # su vencimiento absoluto: renovar no la alarga mas alla de SESION_TTL.
+    redis_op(lambda c: _revocar_jti(c, sesion['jti'], sesion['jti_exp']))
+    _, nuevo_refresh, token = abrir_sesion(usuario, ttl=ttl, sid=sid)
+    metrica('refresh_correctos')
     log.info('Token renovado para el usuario %s', usuario['id'])
     return responder('sesion', {'autenticada': True, 'usuario': usuario,
-                                'token': generar_jwt(usuario),
+                                'token': token, 'refresh_token': nuevo_refresh,
+                                'expira_en': JWT_EXPIRA_MINUTOS * 60,
                                 'mensaje': 'Token renovado.'})
 
 
 @app.route('/logout', methods=['POST'])
 def cerrar_sesion():
-    habia = 'usuario_id' in session
+    """Revoca el JWT y borra sesion y refresh token en Redis.
+
+    Si Redis no responde NO se finge exito: el refresh token seguiria vivo.
+    Devuelve 503 y la cookie no se toca; el cliente debe reintentar.
+    """
+    sids = set()
+    if session.get('sid'):
+        sids.add(session['sid'])
+    refresh = datos_entrantes().get('refresh_token')
+    cabecera = request.headers.get('Authorization', '')
+    token = cabecera[7:].strip() if cabecera.startswith('Bearer ') else ''
+
+    def cerrar(cliente):
+        cerro = False
+        if isinstance(refresh, str) and refresh:
+            registro = cliente.get('refresh:' + _hash_refresh(refresh))
+            if registro:
+                sids.add(json.loads(registro)['sid'])
+                cliente.delete('refresh:' + _hash_refresh(refresh))
+                cerro = True
+        for sid in sids:
+            crudo = cliente.get('session:' + sid)
+            if crudo:
+                sesion = json.loads(crudo)
+                _revocar_jti(cliente, sesion['jti'], sesion['jti_exp'])
+                cliente.delete('refresh:' + sesion['refresh_hash'])
+                cliente.delete('session:' + sid)
+                cerro = True
+        # El JWT presentado tambien se revoca, aunque no se encuentre la sesion.
+        if token:
+            try:
+                reclamos = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITMO],
+                                      issuer=JWT_EMISOR)
+                if isinstance(reclamos.get('jti'), str):
+                    _revocar_jti(cliente, reclamos['jti'], reclamos['exp'])
+                    cerro = True
+            except jwt.PyJWTError:
+                pass
+        return cerro
+
+    habia = redis_op(cerrar)
     session.clear()
-    # 200 tanto si habia sesion como si no: cerrar una sesion que no existe deja
-    # el sistema en el estado pedido, que es la definicion de exito.
+    metrica('logout')
     return responder('resultado', {
         'ok': True,
         'mensaje': 'Sesion cerrada.' if habia else 'No habia ninguna sesion abierta.'})
@@ -724,14 +966,15 @@ def cerrar_sesion():
 
 @app.route('/session', methods=['GET'])
 def consultar_sesion():
-    usuario_id = session.get('usuario_id')
-    if not usuario_id:
+    sid = session.get('sid')
+    crudo = redis_op(lambda c: c.get('session:' + sid)) if sid else None
+    if not crudo:
         return responder('sesion', {'autenticada': False,
                                     'mensaje': 'No hay ninguna sesion abierta.'})
 
-    # No basta con creer a la cookie: la cuenta pudo borrarse o desactivarse
-    # despues de firmarla. La cookie dice quien dijo ser, no quien sigue siendo.
-    fila = buscar_por_id(usuario_id)
+    # No basta con creer a la sesion: la cuenta pudo borrarse o desactivarse
+    # despues de abrirla. La sesion dice quien dijo ser, no quien sigue siendo.
+    fila = buscar_por_id(json.loads(crudo)['user_id'])
     if not fila or not fila['activo']:
         session.clear()
         return responder('sesion', {
@@ -769,6 +1012,14 @@ def salud():
         componentes['correo'] = {'estado': 'desactivado',
                                  'detalle': 'Verificacion por SMTP desactivada.'}
 
+    # Redis caido es 'degradado' para la salud (el servicio responde), pero sin
+    # el no hay login ni sesion ni renovacion: esas rutas dan 503.
+    estado = estado_redis()
+    componentes['redis'] = {
+        'estado': 'ok' if estado == 'ok' else 'degradado',
+        'detalle': {'ok': 'Redis responde.', 'caido': 'Redis no responde.',
+                    'no configurado': 'REDIS_URL no esta configurada.'}[estado]}
+
     hay_error = any(c['estado'] == 'error' for c in componentes.values())
     datos = {
         'estado': 'error' if hay_error else 'ok',
@@ -789,7 +1040,8 @@ def indice():
         'endpoints': [
             {'ruta': '/register', 'metodo': 'POST', 'descripcion': 'Alta de usuario'},
             {'ruta': '/login', 'metodo': 'POST', 'descripcion': 'Autenticar y abrir sesion'},
-            {'ruta': '/logout', 'metodo': 'POST', 'descripcion': 'Cerrar la sesion'},
+            {'ruta': '/token/refresh', 'metodo': 'POST', 'descripcion': 'Renovar el JWT con el refresh token'},
+            {'ruta': '/logout', 'metodo': 'POST', 'descripcion': 'Cerrar la sesion y revocar el JWT'},
             {'ruta': '/session', 'metodo': 'GET', 'descripcion': 'Consultar la sesion'},
             {'ruta': '/health', 'metodo': 'GET', 'descripcion': 'Estado del servicio'},
             {'ruta': '/docs', 'metodo': 'GET', 'descripcion': 'Documentacion Swagger'},

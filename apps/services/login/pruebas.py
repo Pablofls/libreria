@@ -21,6 +21,70 @@ os.environ.setdefault('VERIFICAR_CORREO', '1')
 
 import app as servicio                                            # noqa: E402
 import jwt                                                        # noqa: E402
+import fnmatch                                                    # noqa: E402
+import redis as _redis_lib                                        # noqa: E402
+
+
+class RedisFalso:
+    """Redis en memoria para las pruebas. `caido = True` simula una caida."""
+
+    def __init__(self):
+        self.datos, self.ttls, self.caido = {}, {}, False
+
+    def _vivo(self):
+        if self.caido:
+            raise _redis_lib.ConnectionError('simulado')
+
+    def ping(self):
+        self._vivo()
+        return True
+
+    def exists(self, *claves):
+        self._vivo()
+        return sum(1 for k in claves if k in self.datos)
+
+    def get(self, clave):
+        self._vivo()
+        return self.datos.get(clave)
+
+    def set(self, clave, valor, ex=None):
+        self._vivo()
+        self.datos[clave] = str(valor)
+        self.ttls[clave] = ex
+        return True
+
+    def setex(self, clave, segundos, valor):
+        return self.set(clave, valor, ex=segundos)
+
+    def incrby(self, clave, cantidad=1):
+        self._vivo()
+        self.datos[clave] = str(int(self.datos.get(clave, 0)) + cantidad)
+        return int(self.datos[clave])
+
+    def expire(self, clave, segundos):
+        self._vivo()
+        if clave in self.datos:
+            self.ttls[clave] = segundos
+        return True
+
+    def delete(self, *claves):
+        self._vivo()
+        return sum(1 for k in claves if self.datos.pop(k, None) is not None)
+
+    unlink = delete
+
+    def ttl(self, clave):
+        self._vivo()
+        return self.ttls.get(clave, -1) if clave in self.datos else -2
+
+    def scan_iter(self, match='*', count=None):
+        self._vivo()
+        return iter([k for k in list(self.datos) if fnmatch.fnmatch(k, match)])
+
+
+FALSO = RedisFalso()
+servicio.REDIS_URL = 'redis://:falsa@127.0.0.1:6379/0'
+servicio._redis = FALSO
 import psycopg                                                    # noqa: E402
 
 # sin_efectos() sustituye servicio.verificar_correo por un doble, asi que la
@@ -57,6 +121,9 @@ cliente = servicio.app.test_client()
 
 def sin_efectos():
     """Dobles por omision: base que responde y correo verificado."""
+    FALSO.datos.clear()
+    FALSO.ttls.clear()
+    FALSO.caido = False
     servicio.crear_usuario = lambda campos: dict(USUARIO, email=campos['email'])
     servicio.buscar_por_email = lambda email: dict(FILA) if email == FILA['email'] else None
     servicio.buscar_hash = lambda email: HASH if email == FILA['email'] else None
@@ -232,6 +299,7 @@ revisar('SameSite=Lax' in galleta, 'y SameSite=Lax: no viaja desde otro sitio')
 revisar(b'password_hash' not in r.data, 'el hash no sale en la respuesta')
 
 token = json.loads(r.data).get('token')
+refresco = json.loads(r.data).get('refresh_token')
 revisar(bool(token), 'el login tambien devuelve un JWT')
 reclamos = jwt.decode(token, servicio.JWT_SECRET, algorithms=['HS256'],
                       issuer='login-libreria')
@@ -247,18 +315,37 @@ revisar(reclamos['user_id'] == FILA['id'] and reclamos['role_id'] == servicio.RO
 revisar(reclamos['exp'] - reclamos['iat'] == servicio.JWT_EXPIRA_MINUTOS * 60
         and servicio.JWT_EXPIRA_MINUTOS == 20, 'y caduca a los 20 minutos', reclamos)
 
-# Renovacion: con un token vigente se obtiene otro; sin token o con uno
-# vencido, 401.
-r = cliente.post('/token/refresh?format=json', headers={'Authorization': 'Bearer ' + token})
-revisar(r.status_code == 200 and json.loads(r.data).get('token'),
-        'POST /token/refresh con token vigente, 200 y token nuevo', r.status_code)
+revisar('jti' in reclamos and len(reclamos['jti']) >= 8, 'el JWT lleva un jti unico', reclamos)
+revisar(bool(refresco), 'y el login devuelve un refresh_token')
+claves_sesion = [k for k in FALSO.datos if k.startswith('session:')]
+revisar(len(claves_sesion) == 1 and FALSO.ttls[claves_sesion[0]] == servicio.SESION_TTL_SEGUNDOS,
+        'la sesion vive en Redis con su TTL')
+revisar(all(refresco not in k and refresco not in v for k, v in FALSO.datos.items()),
+        'el refresh token NO se guarda en claro en Redis')
+revisar(any(k.startswith('refresh:') and FALSO.ttls[k] == servicio.SESION_TTL_SEGUNDOS
+            for k in FALSO.datos), 'el refresh (por su hash) tiene el mismo TTL que la sesion')
+
+# Renovacion: el refresh token (de un solo uso) se cambia por JWT + refresh nuevos.
+r = cliente.post('/token/refresh?format=json', json={'refresh_token': refresco})
+renovado = json.loads(r.data)
+revisar(r.status_code == 200 and renovado.get('token') and renovado.get('token') != token,
+        'POST /token/refresh con refresh valido, 200 y JWT nuevo', r.status_code)
+revisar(renovado.get('refresh_token') and renovado['refresh_token'] != refresco,
+        'y un refresh token nuevo (rotacion)')
+revisar(FALSO.exists('jwt:revoked:' + reclamos['jti']) == 1,
+        'el JWT anterior de la sesion queda revocado')
+r = cliente.post('/token/refresh?format=json', json={'refresh_token': refresco})
+revisar(r.status_code == 401, 'el refresh ya usado no sirve otra vez (un solo uso), 401', r.status_code)
 r = cliente.post('/token/refresh?format=json')
-revisar(r.status_code == 401, 'refresh sin token, 401', r.status_code)
-vencido = jwt.encode({'user_id': FILA['id'], 'iss': 'login-libreria',
-                      'exp': datetime.now(timezone.utc) - timedelta(minutes=1)},
-                     servicio.JWT_SECRET, algorithm='HS256')
-r = cliente.post('/token/refresh?format=json', headers={'Authorization': 'Bearer ' + vencido})
-revisar(r.status_code == 401, 'refresh con token vencido, 401', r.status_code)
+revisar(r.status_code == 400, 'refresh sin refresh_token, 400', r.status_code)
+r = cliente.post('/token/refresh?format=json', json={'refresh_token': 'inventado'})
+revisar(r.status_code == 401, 'refresh inventado, 401', r.status_code)
+# La sesion conserva su vencimiento absoluto: renovar no la alarga.
+clave_s = [k for k in FALSO.datos if k.startswith('session:')][0]
+FALSO.ttls[clave_s] = 100
+r = cliente.post('/token/refresh?format=json', json={'refresh_token': renovado['refresh_token']})
+revisar(r.status_code == 200 and FALSO.ttls[clave_s] == 100,
+        'renovar no alarga la sesion mas alla de su TTL original', FALSO.ttls[clave_s])
 
 r = cliente.get('/session?format=json')
 datos = json.loads(r.data)
@@ -286,6 +373,66 @@ revisar(r.status_code == 405, 'GET /login es 405', r.status_code)
 
 
 # --- 4. La sonda de correo, con un Postfix falso --------------------------------
+print('\n3b. Redis: revocacion al salir, caida y limitador')
+
+
+def iniciar():
+    r = cliente.post('/login?format=json', data={'email': FILA['email'], 'password': 'contrasena-buena'})
+    return r, json.loads(r.data)
+
+
+sin_efectos()
+r, cuerpo = iniciar()
+T, R = cuerpo['token'], cuerpo['refresh_token']
+jti = jwt.decode(T, options={'verify_signature': False})['jti']
+r = cliente.post('/logout?format=json', json={'refresh_token': R}, headers={'Authorization': 'Bearer ' + T})
+revisar(r.status_code == 200 and json.loads(r.data)['ok'] is True, 'logout, 200')
+revisar(FALSO.exists('jwt:revoked:' + jti) == 1, 'el JWT queda en la lista de revocacion jwt:revoked:<jti>')
+revisar(0 < FALSO.ttl('jwt:revoked:' + jti) <= servicio.JWT_EXPIRA_MINUTOS * 60 or FALSO.ttls['jwt:revoked:' + jti] <= 1200,
+        'con TTL de lo que le quedaba al token, nunca mas')
+revisar(not any(k.startswith(('session:', 'refresh:')) for k in FALSO.datos),
+        'sesion y refresh token borrados de Redis')
+r = cliente.post('/token/refresh?format=json', json={'refresh_token': R})
+revisar(r.status_code == 401, 'el refresh de una sesion cerrada no sirve, 401', r.status_code)
+r = cliente.get('/session?format=json')
+revisar(json.loads(r.data)['autenticada'] is False, 'y /session ya no la reconoce')
+
+# Caida de Redis: sesion, renovacion y cierre fallan cerrado.
+sin_efectos()
+r, cuerpo = iniciar()
+T, R = cuerpo['token'], cuerpo['refresh_token']
+FALSO.caido = True
+r = cliente.post('/logout?format=json', json={'refresh_token': R}, headers={'Authorization': 'Bearer ' + T})
+revisar(r.status_code == 503 and b'Sesion cerrada' not in r.data,
+        'logout con Redis caido: 503 y NO finge que cerro la sesion', r.status_code)
+r = cliente.post('/token/refresh?format=json', json={'refresh_token': R})
+revisar(r.status_code == 503, 'refresh con Redis caido, 503', r.status_code)
+r = cliente.get('/session?format=json')
+revisar(r.status_code == 503, '/session con Redis caido, 503', r.status_code)
+r = cliente.post('/login?format=json', data={'email': FILA['email'], 'password': 'contrasena-buena'})
+revisar(r.status_code == 503 and b'"token"' not in r.data, 'login con Redis caido: 503 y sin token', r.status_code)
+revisar(r.headers.get('Retry-After') is not None, 'y pide reintentar')
+revisar(servicio.estado_redis() == 'caido', 'estado_redis() informa caido')
+FALSO.caido = False
+revisar(servicio.estado_redis() == 'ok', 'y ok cuando vuelve')
+r = cliente.get('/session?format=json')
+revisar(json.loads(r.data)['autenticada'] is True, 'al volver Redis, la sesion que no se pudo cerrar sigue ahi (se reintenta)')
+
+# Limitador de intentos (tarea temporal coordinada por Redis).
+sin_efectos()
+for i in range(servicio.LOGIN_MAX_INTENTOS):
+    r = cliente.post('/login?format=json', data={'email': FILA['email'], 'password': 'mala-contrasena'})
+    revisar(r.status_code == 401, 'intento fallido {}, 401'.format(i + 1), r.status_code)
+r = cliente.post('/login?format=json', data={'email': FILA['email'], 'password': 'contrasena-buena'})
+revisar(r.status_code == 429 and r.headers.get('Retry-After'),
+        'superado el limite, 429 incluso con la contrasena buena', r.status_code)
+clave_i = [k for k in FALSO.datos if k.startswith('ratelimit:login:')][0]
+revisar(FALSO.ttls[clave_i] == servicio.LOGIN_VENTANA_SEGUNDOS, 'el contador vence solo (TTL de la ventana)')
+FALSO.delete(clave_i)
+r, _ = iniciar()
+revisar(r.status_code == 200, 'pasada la ventana, entra')
+revisar(FALSO.datos.get('metrics:login:login_correctos') is not None, 'las metricas cuentan los logins')
+
 print('\n4. verificar_correo() contra un Postfix simulado')
 
 
