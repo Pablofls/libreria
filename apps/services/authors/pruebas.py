@@ -144,7 +144,7 @@ for metodo, ruta, cuerpo in [('POST', '/authors', {}), ('PUT', '/authors/1', {})
     revisar(r.status_code not in (401, 403), 'admin en {} {} pasa la autorizacion'.format(metodo, ruta), r.status_code)
 
 print('3. Las lecturas son publicas')
-for ruta in ('/authors', '/authors/1', '/authors/1/books'):
+for ruta in ('/authors', '/authors/1', '/authors/1/books', '/authors/books'):
     r = cliente.get(ruta)
     revisar(r.status_code not in (401, 403), 'GET {} sin token no pide autenticacion'.format(ruta), r.status_code)
 

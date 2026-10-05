@@ -144,6 +144,10 @@ for metodo, ruta, cuerpo in [('PATCH', '/orders/1/status', {'estado': 'enviado'}
     revisar(r.status_code not in (401, 403), 'admin en {} {} pasa la autorizacion'.format(metodo, ruta), r.status_code)
 
 print('3. Un lector puede crear pedidos (valida el cuerpo antes de tocar datos)')
+r = cliente.get('/orders/books')
+revisar(r.status_code == 401, 'GET /orders/books sin token, 401', r.status_code)
+r = cliente.get('/orders/books', headers=con(LECTOR))
+revisar(r.status_code not in (401, 403), 'GET /orders/books con lector pasa la autorizacion', r.status_code)
 r = cliente.post('/orders', json={}, headers=con(LECTOR))
 revisar(r.status_code == 400, 'POST /orders sin lineas, 400 (paso la autorizacion)', r.status_code)
 for cuerpo in ({'lineas': [{'libro_id': 1, 'cantidad': 0}]}, {'lineas': [{'libro_id': 'x', 'cantidad': 1}]},

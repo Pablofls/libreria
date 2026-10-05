@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Microservicio de autores de la Libreria Online.
 
-    GET    /authors, /authors/<id>, /authors/<id>/books      publicos
+    GET    /authors, /authors/<id>, /authors/<id>/books, /authors/books  publicos
     POST   /authors                                          (admin)
     PUT | PATCH | DELETE /authors/<id>                       (admin)
     POST | PUT | DELETE /authors/<id>/books/<libro_id>       (admin) relacion
@@ -470,6 +470,16 @@ def listar_autores():
                    count(la.libro_id)::int AS libros
             FROM autores a LEFT JOIN libros_autores la ON la.autor_id = a.id
             GROUP BY a.id ORDER BY a.nombre""").fetchall()
+    return jsonify(filas)
+
+
+@app.route('/authors/books', methods=['GET'])
+def libros_vinculables():
+    """Libros (id, isbn, titulo) a los que se puede acreditar un autor. El
+    catalogo no expone el id numerico; el vinculo lo pide."""
+    with conexion() as con:
+        filas = con.execute(
+            'SELECT id, isbn, titulo FROM libros ORDER BY titulo, id').fetchall()
     return jsonify(filas)
 
 

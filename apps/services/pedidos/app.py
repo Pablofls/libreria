@@ -3,6 +3,7 @@
 
     POST   /orders                 crea un pedido y descuenta stock
     GET    /orders, /orders/<id>   los propios (admin: todos)
+    GET    /orders/books           libros pedibles (id, precio, stock)
     PUT    /orders/<id>            cambia las lineas de un pedido pendiente
     POST   /orders/<id>/cancel     cancela y devuelve stock
     PATCH  /orders/<id>/status     cambia el estado (admin)
@@ -576,6 +577,18 @@ def listar_pedidos():
     with conexion() as con:
         filas = con.execute('SELECT * FROM v_pedidos_total' + donde +
                             ' ORDER BY id DESC', parametros).fetchall()
+    return jsonify(filas)
+
+
+@app.route('/orders/books', methods=['GET'])
+@requiere_jwt()
+def libros_para_pedir():
+    """Libros que se pueden pedir, con el id que piden las lineas, su precio y
+    su stock. Cualquier usuario autenticado."""
+    with conexion() as con:
+        filas = con.execute(
+            'SELECT id, isbn, titulo, precio, stock FROM libros ORDER BY titulo, id'
+        ).fetchall()
     return jsonify(filas)
 
 
