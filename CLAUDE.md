@@ -208,7 +208,7 @@ en los cuatro `app.py`. Detalle y despliegue: [README.md](README.md), sección
   cuenta de prueba dada de baja y un pedido cancelado con su pago reembolsado:
   los pagos no se borran.
 
-### Redis (código escrito 2026-10-05; despliegue en la VM: ver estado al final)
+### Redis (desplegado y probado en la VM el 2026-10-05)
 
 - **Capa compartida y auxiliar**, `REDIS_URL` común en login, catálogo, users,
   authors, pedidos y pagos (contraseña sólo en el `.env` de la VM). Claves:
@@ -224,6 +224,15 @@ en los cuatro `app.py`. Detalle y despliegue: [README.md](README.md), sección
   se replica a mano en los seis. `jti` es claim **obligatorio** en `reclamos_jwt`.
   `authors` y `pedidos` invalidan `books:*` tras escribir (autores y stock se ven
   en el catálogo).
+- **Estado en la VM:** Redis es el paquete `redis` del módulo de remi
+  (`redis.service`), `/etc/redis/redis.conf` con `bind 127.0.0.1`,
+  `protected-mode yes`, `requirepass` (la contraseña sólo vive ahí y en el
+  `REDIS_URL` de los **seis** `.env`), `maxmemory 128mb` y
+  `maxmemory-policy volatile-lru`. Los seis servicios corren con el código nuevo.
+  Evidencias: `docs/evidencias/pruebas_redis_vm.txt` (26 pruebas, 0 fallos) y
+  `docs/evidencias/pruebas_redis_caida_vm.txt` (Redis parado: login 503, sin token
+  401, `GET /books` 200 desde PostgreSQL, semáforos en amarillo). Métricas por
+  nginx: `/metrics/<servicio>` (JWT de admin).
 - Pruebas locales con un `RedisFalso` en memoria (cada `pruebas.py`) y
   `tests/pruebas_redis.py` contra la VM (`REDIS_CAIDO=1` para la prueba de caída).
 
@@ -250,6 +259,15 @@ Pruebas sin pantalla: `apps/services/soap/tests/pruebas_cliente_rest.py`.
   que correrlo en su Mac. Desde la propia VM, la IP pública no sirve para probar
   un puerto nuevo (sale a la red de Google y `firewalld` lo descarta): probar con
   `--connect-to <ip>:443:127.0.0.1:443`.
+- **La IP del usuario cambia** (otra red): las reglas de GCP
+  `libreria-permitir-api-tls` (443) y `libreria-permitir-servicios-jwt`
+  (5003–5006) sólo aceptan la IP con que se crearon; si de pronto todo da timeout
+  desde su Mac, comparar `curl -s ifconfig.me` (en el Mac) y
+  `gcloud compute firewall-rules update <regla> --source-ranges=<ip>/32`.
+  El 443 se actualizó a 189.159.107.64; la de 5003–5006 sigue con la IP vieja.
+- Un `requirements.txt` que no lleva una dependencia nueva rompe el servicio sólo
+  en la VM (`ModuleNotFoundError` en el worker de gunicorn): al añadir una
+  librería, revisar el `requirements.txt` de **cada** servicio que la importe.
 - Tras `git pull` en la VM, un servicio sólo toma el código nuevo con
   `sudo systemctl restart libreria-<n>`.
 

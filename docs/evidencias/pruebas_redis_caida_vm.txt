@@ -1,0 +1,12 @@
+PRUEBA DE CAIDA: Redis debe estar parado (sudo systemctl stop redis)
+  ok   login con Redis caido, 503 (no se abre sesion sin Redis) 
+  ok   ruta protegida sin token sigue siendo 401 
+  ok   GET /books sigue sirviendo desde PostgreSQL (la cache falla abierto) 
+  ok   semaforo login: responde y marca Redis caido (amarillo) 
+  ok   semaforo catalogo: responde y marca Redis caido (amarillo) 
+  ok   semaforo users: responde y marca Redis caido (amarillo) 
+  ok   semaforo authors: responde y marca Redis caido (amarillo) 
+  ok   semaforo pedidos: responde y marca Redis caido (amarillo) 
+  ok   semaforo pagos: responde y marca Redis caido (amarillo) 
+
+9 comprobaciones, 0 fallos
