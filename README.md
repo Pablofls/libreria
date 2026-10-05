@@ -168,6 +168,10 @@ libreria/
 │   │   └── renderer/             index.html · estilos.css · renderer.js
 │   │
 │   └── services/                 Microservicios Python, uno por carpeta
+│       ├── users/                Usuarios y roles, JSON + JWT (Flask, 5003)
+│       ├── authors/              Autores y su relación con libros, JSON + JWT (Flask, 5004)
+│       ├── pedidos/              Pedidos, líneas, stock y estados, JSON + JWT (Flask, 5005)
+│       ├── pagos/                Pagos; actualiza el estado del pedido, JSON + JWT (Flask, 5006)
 │       ├── catalogo/             Catálogo bilingüe XML/JSON (Flask, 5002)
 │       │   ├── app.py            Servicio completo, una sola app Flask sin Blueprints
 │       │   ├── library.xml       Catálogo de ejemplo con la misma estructura
@@ -204,6 +208,10 @@ libreria/
 │   ├── apache-library.conf       Alternativa con Apache
 │   ├── libreria.service          Unidad de systemd del monolito, con endurecimiento
 │   ├── libreria-catalogo.service Unidad del microservicio de catálogo (5002)
+│   ├── libreria-users.service    Unidad del microservicio de usuarios (5003)
+│   ├── libreria-authors.service  Unidad del microservicio de autores (5004)
+│   ├── libreria-pedidos.service  Unidad del microservicio de pedidos (5005)
+│   ├── libreria-pagos.service    Unidad del microservicio de pagos (5006)
 │   ├── libreria-login.service    Unidad del microservicio de autenticación (5000)
 │   └── libreria-soap.service     Unidad del módulo SOAP de clasificación (5001)
 │
@@ -318,6 +326,41 @@ imagenes_libros
   tamano_bytes       ← CHECK: > 0 y <= 2 MB
   texto_alternativo  ← accesibilidad
   es_portada         ← índice único parcial: una sola portada por libro
+
+
+──────────────── Pedidos y pagos (apps/services/pedidos y pagos) ────────
+PENDIENTE de aplicar en la VM: db/pending/20261004-pedidos-pagos.sql.
+Normalizadas hasta 4FN: catálogos con FK, sin total almacenado (lo calcula la
+vista v_pedidos_total) y el historial de estados aparte de las líneas.
+
+estados_pedido · estados_pago · metodos_pago
+  id (PK) · nombre (U)
+
+pedidos
+  id (PK)
+  usuario_id → usuarios(id)         RESTRICT  ← se desactiva, no se borra
+  estado_id  → estados_pedido(id)   RESTRICT
+  creado_en
+
+pedidos_lineas
+  pedido_id → pedidos   CASCADE
+  libro_id  → libros    RESTRICT
+  cantidad         ← CHECK > 0
+  precio_unitario  ← precio pactado al comprar (histórico)
+  PK (pedido_id, libro_id)
+
+pedidos_estados_historial          ← hecho multivaluado aparte (4FN)
+  pedido_id → pedidos CASCADE · estado_id → estados_pedido
+  cambiado_en · cambiado_por → usuarios SET NULL
+  PK (pedido_id, cambiado_en)      ← lo llena trg_pedido_historial
+
+pagos
+  id (PK)
+  pedido_id      → pedidos(id)      RESTRICT
+  metodo_pago_id → metodos_pago(id) RESTRICT
+  estado_pago_id → estados_pago(id) RESTRICT
+  monto          ← CHECK > 0
+  referencia (U) · creado_en
 
 
 ──────────────── Tablas del módulo SOAP (apps/services/soap) ────────
@@ -636,6 +679,57 @@ popup**, o pedirá el catálogo a quien no es.
 **Cada servicio Python con su propio `.env`, en su propio directorio.** No los
 compartas ni los enlaces: el segundo en arrancar moriría con *Address already
 in use* o, peor porque no se nota, respondería lo que no es.
+
+### Microservicios Users, Authors, Pedidos y Pagos (JWT)
+
+Cuatro servicios Flask más, del ejercicio guiado de servicios, con la misma
+estructura que login (un `.env` y una unidad por servicio, rol `libreria_app`).
+Sólo hablan JSON.
+
+| Servicio | Unidad | Puerto | Quién escribe |
+|---|---|---|---|
+| Users | `libreria-users.service` | 5003 | Admin sobre cualquiera; un lector, sólo su cuenta. Baja lógica |
+| Authors | `libreria-authors.service` | 5004 | Admin. Los GET son públicos |
+| Pedidos | `libreria-pedidos.service` | 5005 | Cualquier usuario autenticado sobre lo suyo; estados, sólo admin |
+| Pagos | `libreria-pagos.service` | 5006 | Dueño del pedido o admin. Pagos simulados |
+
+**JWT.** `/login` (5000) lo emite con HS256, **20 minutos** y los claims
+`user_id` y `role_id` (admin = 1, lector = 2; la base sigue guardando el rol como
+texto). Se renueva antes de caducar con `POST /token/refresh` (Bearer aún
+vigente; uno vencido exige volver a `/login`). Cada servicio verifica firma,
+algoritmo (fijo, nunca el del token), expiración, emisor y claims **antes** de
+tocar datos: **401** sin token o inválido, **403** con rol insuficiente. Las
+lecturas administrativas (usuarios, pedidos, pagos) también exigen JWT; sólo el
+catálogo de autores es público.
+
+**Secreto.** `JWT_SECRET_KEY`, el mismo valor en el `.env` de login y de los
+cuatro servicios (login y catálogo aceptan además el nombre antiguo
+`JWT_SECRET`). Nunca en el código; sin él el servicio no arranca. **CORS:**
+`CORS_ORIGENES` lista los orígenes de los clientes; vacío = ninguno, nunca `*`.
+Los logs no llevan contraseñas ni tokens y los errores no llevan SQL.
+
+**Límites conocidos.** El rol viaja en el token, así que un cambio de rol o una
+baja tarda hasta 20 minutos en notarse en los servicios (el refresh sí vuelve a
+consultar la base). Los puertos van por HTTP hasta que se active el bloque TLS
+de `deploy/nginx-library.conf`: mientras tanto los JWT viajan en claro.
+
+**Base de datos.** Pedidos y Pagos necesitan las tablas de
+`db/pending/20261004-pedidos-pagos.sql` (normalizadas hasta 4FN). Hasta que corra
+en la VM, esos dos servicios responden 500 en sus rutas con SQL.
+
+Despliegue de cada uno (cambiar `users` por el servicio que toque):
+
+```bash
+cd /opt/udem/libreria/apps/services/users
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+cp .env.example .env && chmod 600 .env     # DB_PASSWORD, JWT_SECRET_KEY, CORS_ORIGENES
+sudo restorecon -Rv /opt/udem/libreria/apps/services/users
+sudo cp /opt/udem/libreria/deploy/libreria-users.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now libreria-users
+```
+
+Pruebas: `python3 pruebas.py` en cada carpeta (seguridad, sin base de datos) y
+`tests/pruebas_servicios.py` contra la VM (flujo completo).
 
 ### Microservicio de catálogo
 

@@ -125,6 +125,23 @@ gcloud compute firewall-rules update libreria-permitir-catalogo \
   --source-ranges=TU_IP/32
 ```
 
+### Servicios Users, Authors, Pedidos y Pagos (5003 a 5006)
+
+Llevan JWT, pero hoy van por HTTP: el token viaja en claro. Hasta que haya TLS
+se abren **sólo a tu IP**, no a `0.0.0.0/0`:
+
+```bash
+gcloud compute firewall-rules create libreria-permitir-servicios-jwt \
+  --direction=INGRESS --action=ALLOW --rules=tcp:5003-5006 \
+  --target-tags=http-server --source-ranges=TU_IP/32 \
+  --description="Users, Authors, Pedidos y Pagos"
+```
+
+```bash
+sudo firewall-cmd --add-port=5003-5006/tcp --permanent
+sudo firewall-cmd --reload && sudo firewall-cmd --list-ports
+```
+
 ### Puertos que NO se abren, y por qué
 
 | Puerto | Servicio | Decisión |

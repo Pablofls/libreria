@@ -143,6 +143,27 @@ BEGIN
     END IF;
 END $$;
 
+-- ---------------------------------------------------------------------------
+-- Vista: total y pagado de cada pedido (derivados, nunca almacenados)
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE VIEW v_pedidos_total AS
+SELECT p.id,
+       p.usuario_id,
+       ep.nombre AS estado,
+       p.creado_en,
+       COALESCE(l.total, 0)  AS total,
+       COALESCE(g.pagado, 0) AS pagado
+FROM pedidos p
+JOIN estados_pedido ep ON ep.id = p.estado_id
+LEFT JOIN (SELECT pedido_id, SUM(cantidad * precio_unitario) AS total
+           FROM pedidos_lineas GROUP BY pedido_id) l ON l.pedido_id = p.id
+LEFT JOIN (SELECT pg.pedido_id, SUM(pg.monto) AS pagado
+           FROM pagos pg
+           JOIN estados_pago es ON es.id = pg.estado_pago_id
+           WHERE es.nombre = 'aprobado'
+           GROUP BY pg.pedido_id) g ON g.pedido_id = p.id;
+
+
 -- Inventario de vistas creadas y conteo de filas de control.
 SELECT table_name FROM information_schema.views
 WHERE table_schema = 'public' ORDER BY 1;

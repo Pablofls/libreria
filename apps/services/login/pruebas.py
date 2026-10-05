@@ -13,6 +13,7 @@ import os
 import smtplib
 import sys
 import xml.etree.ElementTree as ET
+from datetime import datetime, timedelta, timezone
 
 os.environ.setdefault('SECRET_KEY', 'clave-solo-para-las-pruebas-en-proceso')
 os.environ.setdefault('JWT_SECRET', 'otra-clave-solo-para-las-pruebas-en-proceso')
@@ -241,6 +242,23 @@ try:
     revisar(False, 'un JWT firmado con otra clave deberia rechazarse')
 except jwt.InvalidSignatureError:
     revisar(True, 'y una firma con otra clave se rechaza')
+revisar(reclamos['user_id'] == FILA['id'] and reclamos['role_id'] == servicio.ROLES_ID[FILA['rol']],
+        'el JWT lleva user_id y role_id', reclamos)
+revisar(reclamos['exp'] - reclamos['iat'] == servicio.JWT_EXPIRA_MINUTOS * 60
+        and servicio.JWT_EXPIRA_MINUTOS == 20, 'y caduca a los 20 minutos', reclamos)
+
+# Renovacion: con un token vigente se obtiene otro; sin token o con uno
+# vencido, 401.
+r = cliente.post('/token/refresh?format=json', headers={'Authorization': 'Bearer ' + token})
+revisar(r.status_code == 200 and json.loads(r.data).get('token'),
+        'POST /token/refresh con token vigente, 200 y token nuevo', r.status_code)
+r = cliente.post('/token/refresh?format=json')
+revisar(r.status_code == 401, 'refresh sin token, 401', r.status_code)
+vencido = jwt.encode({'user_id': FILA['id'], 'iss': 'login-libreria',
+                      'exp': datetime.now(timezone.utc) - timedelta(minutes=1)},
+                     servicio.JWT_SECRET, algorithm='HS256')
+r = cliente.post('/token/refresh?format=json', headers={'Authorization': 'Bearer ' + vencido})
+revisar(r.status_code == 401, 'refresh con token vencido, 401', r.status_code)
 
 r = cliente.get('/session?format=json')
 datos = json.loads(r.data)

@@ -330,6 +330,30 @@ CREATE TRIGGER trg_usuario_baja_persona
     AFTER DELETE ON usuarios
     FOR EACH ROW EXECUTE FUNCTION fn_usuario_baja_persona();
 
+-- El estado actual vive en pedidos.estado_id; cada alta o cambio deja una fila
+-- en el historial. El servicio puede indicar quien cambia con
+--     SET LOCAL app.usuario_id = '<id>';
+-- dentro de la transaccion. Sin eso, cambiado_por queda NULL.
+CREATE OR REPLACE FUNCTION fn_pedido_historial()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    IF TG_OP = 'INSERT' OR NEW.estado_id IS DISTINCT FROM OLD.estado_id THEN
+        INSERT INTO pedidos_estados_historial (pedido_id, estado_id, cambiado_por)
+        VALUES (NEW.id, NEW.estado_id,
+                NULLIF(current_setting('app.usuario_id', true), '')::INTEGER);
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_pedido_historial ON pedidos;
+CREATE TRIGGER trg_pedido_historial
+    AFTER INSERT OR UPDATE OF estado_id ON pedidos
+    FOR EACH ROW EXECUTE FUNCTION fn_pedido_historial();
+
+
 -- Inventario de disparadores creados.
 SELECT c.relname AS tabla, t.tgname AS disparador
 FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid

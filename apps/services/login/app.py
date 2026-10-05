@@ -101,16 +101,24 @@ if not CLAVE_SESION:
 # verificar por su cuenta. Igual que SECRET_KEY, sin valor por omision: un
 # default en un repositorio publico dejaria falsificar tokens de escritura del
 # catalogo.
-JWT_SECRET = os.getenv('JWT_SECRET', '').strip()
+# JWT_SECRET_KEY es el nombre que usan los servicios nuevos (users, authors,
+# pedidos, pagos); JWT_SECRET se sigue aceptando para no romper el .env ya
+# desplegado de login y catalogo.
+JWT_SECRET = (os.getenv('JWT_SECRET_KEY') or os.getenv('JWT_SECRET') or '').strip()
 if not JWT_SECRET:
     raise RuntimeError(
-        'Falta JWT_SECRET. Debe ser el mismo valor en el .env de este servicio '
+        'Falta JWT_SECRET_KEY (o JWT_SECRET). Debe ser el mismo valor en el .env de este servicio '
         'y en el de apps/services/catalogo (python3 -c "import secrets; '
         'print(secrets.token_urlsafe(48))"). El servicio no arranca sin el: '
         'sin secreto no hay JWT que firmar.')
 JWT_ALGORITMO = 'HS256'
 JWT_EMISOR = 'login-libreria'
-JWT_EXPIRA_MINUTOS = int(os.getenv('JWT_EXPIRA_MINUTOS', '60'))
+JWT_EXPIRA_MINUTOS = int(os.getenv('JWT_EXPIRA_MINUTOS', '20'))
+
+# role_id del JWT. La base guarda el rol como texto (usuarios.rol); el numero
+# vive aqui, sin tabla nueva, y los servicios que verifican el token autorizan
+# por este valor. Un rol que no este en el mapa no recibe token.
+ROLES_ID = {'admin': 1, 'lector': 2}
 
 app = Flask(__name__)
 app.secret_key = CLAVE_SESION
@@ -599,6 +607,8 @@ def generar_jwt(usuario):
     ahora = datetime.now(timezone.utc)
     payload = {
         'sub': str(usuario['id']),
+        'user_id': usuario['id'],
+        'role_id': ROLES_ID[usuario['rol']],
         'email': usuario['email'],
         'rol': usuario['rol'],
         'iss': JWT_EMISOR,
@@ -672,6 +682,33 @@ def iniciar_sesion():
     return responder('sesion', {'autenticada': True, 'usuario': usuario,
                                 'token': generar_jwt(usuario),
                                 'mensaje': 'Sesion iniciada.'})
+
+
+@app.route('/token/refresh', methods=['POST'])
+def renovar_token():
+    """Cambia un JWT aun vigente por uno nuevo, antes de que caduque.
+
+    Un token vencido no se renueva: hay que volver a /login. La cuenta se
+    consulta de nuevo, asi que una cuenta desactivada o con otro rol deja de
+    recibir tokens aqui aunque el viejo siga firmado.
+    """
+    cabecera = request.headers.get('Authorization', '')
+    token = cabecera[7:].strip() if cabecera.startswith('Bearer ') else ''
+    if not token:
+        return error_respuesta(401, 'Falta el token.')
+    try:
+        reclamos = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITMO],
+                              issuer=JWT_EMISOR)
+        fila = buscar_por_id(int(reclamos['user_id']))
+    except (jwt.PyJWTError, KeyError, TypeError, ValueError):
+        return error_respuesta(401, 'Token ausente, invalido o vencido.')
+    if not fila or not fila['activo']:
+        return error_respuesta(401, 'La cuenta ya no es valida.')
+    usuario = _a_usuario(fila)
+    log.info('Token renovado para el usuario %s', usuario['id'])
+    return responder('sesion', {'autenticada': True, 'usuario': usuario,
+                                'token': generar_jwt(usuario),
+                                'mensaje': 'Token renovado.'})
 
 
 @app.route('/logout', methods=['POST'])

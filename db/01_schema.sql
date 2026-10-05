@@ -341,6 +341,110 @@ CREATE UNIQUE INDEX ux_imagenes_portada_unica
 
 CREATE INDEX ix_imagenes_libro ON imagenes_libros (libro_id);
 
+-- (Pedidos y pagos: pendiente de aplicar en la VM, ver db/pending/20261004-pedidos-pagos.sql.
+-- Normalizado hasta 4FN; el razonamiento tabla por tabla esta en ese archivo.)
+-- ---------------------------------------------------------------------------
+-- Catalogos
+-- ---------------------------------------------------------------------------
+CREATE TABLE estados_pedido (
+    id      SMALLSERIAL PRIMARY KEY,
+    nombre  VARCHAR(20) NOT NULL,
+    CONSTRAINT ux_estados_pedido_nombre UNIQUE (nombre),
+    CONSTRAINT ck_estados_pedido_nombre CHECK (btrim(nombre) <> '')
+);
+
+CREATE TABLE estados_pago (
+    id      SMALLSERIAL PRIMARY KEY,
+    nombre  VARCHAR(20) NOT NULL,
+    CONSTRAINT ux_estados_pago_nombre UNIQUE (nombre),
+    CONSTRAINT ck_estados_pago_nombre CHECK (btrim(nombre) <> '')
+);
+
+CREATE TABLE metodos_pago (
+    id      SMALLSERIAL PRIMARY KEY,
+    nombre  VARCHAR(30) NOT NULL,
+    CONSTRAINT ux_metodos_pago_nombre UNIQUE (nombre),
+    CONSTRAINT ck_metodos_pago_nombre CHECK (btrim(nombre) <> '')
+);
+
+INSERT INTO estados_pedido (nombre) VALUES
+    ('pendiente'), ('pagado'), ('enviado'), ('cancelado');
+INSERT INTO estados_pago (nombre) VALUES
+    ('pendiente'), ('aprobado'), ('rechazado'), ('reembolsado');
+INSERT INTO metodos_pago (nombre) VALUES
+    ('tarjeta'), ('transferencia'), ('efectivo');
+
+-- ---------------------------------------------------------------------------
+-- Pedidos
+-- ---------------------------------------------------------------------------
+-- usuario_id es RESTRICT: un usuario con pedidos no se borra, se desactiva
+-- (usuarios.activo = false). El servicio Users lo hace asi.
+CREATE TABLE pedidos (
+    id          SERIAL PRIMARY KEY,
+    usuario_id  INTEGER     NOT NULL,
+    estado_id   SMALLINT    NOT NULL,
+    creado_en   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT fk_pedidos_usuario FOREIGN KEY (usuario_id)
+        REFERENCES usuarios (id) ON UPDATE CASCADE ON DELETE RESTRICT,
+    CONSTRAINT fk_pedidos_estado FOREIGN KEY (estado_id)
+        REFERENCES estados_pedido (id) ON UPDATE CASCADE ON DELETE RESTRICT
+);
+CREATE INDEX ix_pedidos_usuario ON pedidos (usuario_id);
+CREATE INDEX ix_pedidos_estado  ON pedidos (estado_id);
+
+CREATE TABLE pedidos_lineas (
+    pedido_id        INTEGER       NOT NULL,
+    libro_id         INTEGER       NOT NULL,
+    cantidad         INTEGER       NOT NULL,
+    precio_unitario  NUMERIC(10,2) NOT NULL,
+    CONSTRAINT pk_pedidos_lineas PRIMARY KEY (pedido_id, libro_id),
+    CONSTRAINT ck_lineas_cantidad CHECK (cantidad > 0),
+    CONSTRAINT ck_lineas_precio   CHECK (precio_unitario >= 0),
+    CONSTRAINT fk_lineas_pedido FOREIGN KEY (pedido_id)
+        REFERENCES pedidos (id) ON UPDATE CASCADE ON DELETE CASCADE,
+    CONSTRAINT fk_lineas_libro FOREIGN KEY (libro_id)
+        REFERENCES libros (id) ON UPDATE CASCADE ON DELETE RESTRICT
+);
+CREATE INDEX ix_lineas_libro ON pedidos_lineas (libro_id);
+
+CREATE TABLE pedidos_estados_historial (
+    pedido_id    INTEGER     NOT NULL,
+    cambiado_en  TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+    estado_id    SMALLINT    NOT NULL,
+    cambiado_por INTEGER,
+    CONSTRAINT pk_pedidos_estados_historial PRIMARY KEY (pedido_id, cambiado_en),
+    CONSTRAINT fk_hist_pedido FOREIGN KEY (pedido_id)
+        REFERENCES pedidos (id) ON UPDATE CASCADE ON DELETE CASCADE,
+    CONSTRAINT fk_hist_estado FOREIGN KEY (estado_id)
+        REFERENCES estados_pedido (id) ON UPDATE CASCADE ON DELETE RESTRICT,
+    -- SET NULL: borrar a quien hizo el cambio no debe borrar la historia.
+    CONSTRAINT fk_hist_usuario FOREIGN KEY (cambiado_por)
+        REFERENCES usuarios (id) ON UPDATE CASCADE ON DELETE SET NULL
+);
+
+-- ---------------------------------------------------------------------------
+-- Pagos
+-- ---------------------------------------------------------------------------
+CREATE TABLE pagos (
+    id              SERIAL PRIMARY KEY,
+    pedido_id       INTEGER       NOT NULL,
+    metodo_pago_id  SMALLINT      NOT NULL,
+    estado_pago_id  SMALLINT      NOT NULL,
+    monto           NUMERIC(10,2) NOT NULL,
+    referencia      VARCHAR(60),
+    creado_en       TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+    CONSTRAINT ck_pagos_monto CHECK (monto > 0),
+    CONSTRAINT ux_pagos_referencia UNIQUE (referencia),
+    CONSTRAINT fk_pagos_pedido FOREIGN KEY (pedido_id)
+        REFERENCES pedidos (id) ON UPDATE CASCADE ON DELETE RESTRICT,
+    CONSTRAINT fk_pagos_metodo FOREIGN KEY (metodo_pago_id)
+        REFERENCES metodos_pago (id) ON UPDATE CASCADE ON DELETE RESTRICT,
+    CONSTRAINT fk_pagos_estado FOREIGN KEY (estado_pago_id)
+        REFERENCES estados_pago (id) ON UPDATE CASCADE ON DELETE RESTRICT
+);
+CREATE INDEX ix_pagos_pedido ON pagos (pedido_id);
+
+
 -- -----------------------------------------------------------------------------
 -- Tablas del modulo SOAP: NO se definen aqui.
 --

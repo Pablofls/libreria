@@ -1,0 +1,64 @@
+# =============================================================================
+# deploy/libreria-authors.service
+# Unidad de systemd del microservicio de autores (JSON + JWT, puerto 5004).
+#
+#     sudo cp deploy/libreria-authors.service /etc/systemd/system/
+#     sudo systemctl daemon-reload
+#     sudo systemctl enable --now libreria-authors
+#     sudo systemctl status libreria-authors
+#     journalctl -u libreria-authors -f
+#
+# Mismo patron que libreria-login.service. UN .env POR SERVICIO, en su propio
+# directorio (permisos 600, dueno el usuario del servicio): lleva la contrasena
+# de libreria_app y JWT_SECRET_KEY, el MISMO valor que en login y en los demas
+# servicios. Quien lea esa clave puede fabricarse un token de administrador.
+# =============================================================================
+
+[Unit]
+Description=Microservicio de autores de la Libreria Online (Flask + PostgreSQL + JWT)
+Documentation=file:/opt/udem/libreria/apps/services/authors/README.md
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pablogcp26
+Group=pablogcp26
+WorkingDirectory=/opt/udem/libreria/apps/services/authors
+
+# ANTES DE HABILITAR: etiquetar el arbol para SELinux (si no, falla con 203/EXEC)
+#
+#     sudo restorecon -Rv /opt/udem/libreria/apps/services/authors
+#
+# Repetir cada vez que se recree el venv.
+#
+# Sin estado en memoria: el JWT es autocontenido, asi que se pueden usar varios
+# workers. 2 workers x DB_POOL_MAX conexiones por servicio.
+ExecStart=/opt/udem/libreria/apps/services/authors/.venv/bin/python3 \
+    -m gunicorn \
+    --workers 2 \
+    --threads 8 \
+    --bind 0.0.0.0:5004 \
+    --timeout 30 \
+    --access-logfile - \
+    --error-logfile - \
+    app:app
+
+Restart=on-failure
+RestartSec=5
+
+# --- Endurecimiento (no escribe en disco) -------------------------------------
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=libreria-authors
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,17 @@
+# Microservicio pagos (apps/services/pagos/app.py).
+#
+#     python3 -m venv .venv && . .venv/bin/activate
+#     pip install -r requirements.txt
+#
+# Mismo stack que apps/services/login: Flask + psycopg 3 con pool. PyJWT
+# verifica los tokens que emite login (secreto compartido JWT_SECRET_KEY).
+# Flask-Cors restringe los origenes a CORS_ORIGENES. Gunicorn solo para la VM
+# (ver deploy/libreria-pagos.service).
+
+Flask==3.0.3
+Flask-Cors==4.0.1
+psycopg[binary]==3.2.3
+psycopg-pool==3.2.4
+PyJWT==2.9.0
+python-dotenv==1.0.1
+gunicorn==22.0.0
