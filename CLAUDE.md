@@ -3,7 +3,7 @@
 Librería Online — **monorepo**. La pieza principal es la app monolítica
 Node.js + Express + **EJS** + PostgreSQL (`apps/web-monolito/`), patrón MVC
 organizado por módulos de dominio; a su lado viven un cliente de escritorio y
-tres microservicios Python que hablan con la misma base.
+siete microservicios Python que hablan con la misma base.
 Documentación completa en [README.md](README.md).
 
 ## Mapa del monorepo
@@ -15,6 +15,7 @@ Documentación completa en [README.md](README.md).
 | `apps/services/catalogo/` | Microservicio Flask de catálogo, bilingüe XML/JSON. Puerto 5002 |
 | `apps/services/soap/` | Microservicio SOAP de clasificación Cloud, con WSDL. Puerto 5001 |
 | `apps/services/login/` | Microservicio Flask de autenticación. Puerto 5000 |
+| `apps/services/users/` `authors/` `pedidos/` `pagos/` | Microservicios Flask JSON + JWT del ejercicio guiado de servicios. Puertos 5003 · 5004 · 5005 · 5006 |
 | `clients/` | Clientes Java y Python del servicio SOAP |
 | `db/` `deploy/` `docs/` `tests/` `evidencias/` | Compartidos por todo el repo: SQL · despliegue · documentación · pruebas · capturas |
 
@@ -152,6 +153,83 @@ introducir estructuras nuevas. Si el módulo es un catálogo simple
   el archivo después no deshace la publicación, sólo rotar la credencial lo hace.
   Si detectas una credencial en claro ya versionada, díselo al usuario en vez de
   limitarte a borrarla.
+
+## Servicios del ejercicio guiado (Users, Authors, Pedidos, Pagos) — estado 2026-10-04
+
+**Desplegado y probado en la VM** (31 pruebas en la VM, 29 desde fuera, por HTTP
+y por HTTPS, 0 fallos; evidencias en `docs/evidencias/pruebas_servicios_*.txt`).
+Cada servicio es un `app.py` Flask + psycopg3 con pool, `.env` propio y unidad
+`deploy/libreria-<n>.service`. Las cuatro comparten el mismo bloque base
+(JWT, CORS, errores) **copiado**, no importado: un cambio ahí se replica a mano
+en los cuatro `app.py`. Detalle y despliegue: [README.md](README.md), sección
+"Microservicios Users, Authors, Pedidos y Pagos (JWT)".
+
+| Servicio | Puerto | Rutas | Quién escribe |
+|---|---|---|---|
+| users | 5003 | `/users` | admin; un lector sólo su cuenta; DELETE = baja lógica |
+| authors | 5004 | `/authors` | admin; los GET son públicos |
+| pedidos | 5005 | `/orders` | cualquier autenticado sobre lo suyo; estados sólo admin |
+| pagos | 5006 | `/payments` | dueño del pedido o admin; pagos simulados |
+
+- **JWT.** Lo emite `login` (5000): HS256, **20 min**, claims `sub`, `user_id`,
+  `role_id` (admin=1, lector=2, mapa `ROLES_ID` en login; la BD sigue con
+  `usuarios.rol` en texto), `rol`, `email`, `iss='login-libreria'`. Renovable con
+  `POST /token/refresh` (Bearer vigente; uno vencido exige `/login`). Cada
+  servicio verifica firma, `algorithms=['HS256']` fijo, `exp`, `iss` y claims;
+  401 sin token válido, 403 con rol insuficiente. El catálogo (5002) sigue
+  validando por `rol == 'admin'`.
+- **Secreto.** `JWT_SECRET_KEY`, **el mismo valor** en el `.env` de login y de los
+  cuatro (login y catálogo aceptan también el nombre viejo `JWT_SECRET`).
+  Sin él, ninguno arranca. `CORS_ORIGENES` lista orígenes; vacío = ninguno,
+  nunca `*`.
+- **BD, normalizada hasta 4FN** (exigencia del usuario para todo cambio):
+  [db/applied/20261004-pedidos-pagos.sql](db/applied/20261004-pedidos-pagos.sql)
+  ya corrió en la VM. Catálogos `estados_pedido`, `estados_pago`, `metodos_pago`;
+  `pedidos`, `pedidos_lineas`, `pedidos_estados_historial` (lo llena el trigger
+  `trg_pedido_historial`; el servicio fija `app.usuario_id` con `set_config`),
+  `pagos`, vista `v_pedidos_total`. **No hay columna `total`**: es derivado y se
+  lee de la vista. El stock vive en `libros.stock` y se ajusta sólo con
+  `sp_ajustar_stock`, en la misma transacción que el pedido.
+- **HTTPS.** `deploy/nginx-api-tls.conf` (nginx, 443) reenvía `/login`,
+  `/register`, `/logout`, `/session`, `/token/*` → 5000, `/users` → 5003,
+  `/authors` → 5004, `/orders` → 5005, `/payments` → 5006. **No hay dominio, sólo
+  la IP**, así que el certificado es **autofirmado** (en la VM:
+  `/etc/pki/tls/certs/libreria-api.crt` y su clave en `/etc/pki/tls/private/`,
+  nunca en el repo). `curl` necesita `--cacert`; el flujo completo corre con
+  `CA_CERT=<crt> HOST=<ip> … python3 tests/pruebas_servicios.py`.
+- **Pendiente (opcional):** los puertos 5003–5006 siguen hablando HTTP y abiertos
+  a una IP concreta en GCP (`libreria-permitir-servicios-jwt`) y en `firewalld`;
+  para que HTTPS proteja de verdad, ligar las unidades a `127.0.0.1` y cerrar esos
+  puertos. Login (5000) y catálogo (5002) no se han tocado.
+- **Pruebas.** `python3 pruebas.py` en cada carpeta (seguridad, sin BD) y
+  `tests/pruebas_servicios.py` contra la VM, con credenciales por variable de
+  entorno (`ADMIN_EMAIL`, `ADMIN_PASS`, `LECTOR_EMAIL`, `LECTOR_PASS`). Deja una
+  cuenta de prueba dada de baja y un pedido cancelado con su pago reembolsado:
+  los pagos no se borran.
+
+### Datos de la VM que cuestan averiguar
+
+- Dueño real de las tablas: `libreria_user` (no `libreria_owner`, que aparece en
+  los scripts). Para correr un `.sql` de `db/pending/` sin pedir su contraseña:
+  `(echo "SET ROLE libreria_user;"; cat archivo.sql) | sudo -u postgres psql -d libreria_db -v ON_ERROR_STOP=1`.
+- El rol `libreria_app` es el de los servicios; los `GRANT` a tablas nuevas van
+  explícitos en el `.sql`.
+- Tras `pip install` en un servicio nuevo: `sudo restorecon -R` sobre su carpeta o
+  systemd falla con 203/EXEC.
+- `curl -s ifconfig.me` en la VM da la IP **de la VM**; para la del usuario hay
+  que correrlo en su Mac. Desde la propia VM, la IP pública no sirve para probar
+  un puerto nuevo (sale a la red de Google y `firewalld` lo descarta): probar con
+  `--connect-to <ip>:443:127.0.0.1:443`.
+- Tras `git pull` en la VM, un servicio sólo toma el código nuevo con
+  `sudo systemctl restart libreria-<n>`.
+
+### Cómo trabaja el usuario en la VM
+
+El usuario ejecuta los comandos en la VM y pega la salida; Claude no tiene acceso.
+**Un paso por mensaje**, con **un comando por bloque** y sin cadenas con `;`: su
+terminal al pegar añade una `\` antes del `;` y rompe el comando. Su shell en el
+Mac es zsh (`read "VAR?texto"`, no `read -p`). Las contraseñas se piden con
+`read -s` y nunca se pegan en el chat.
 
 ## Comandos
 
