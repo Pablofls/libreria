@@ -773,7 +773,8 @@ porque cambian lo que el catálogo muestra (autores, stock).
 | `GET /books` y `GET /books/<isbn>` | **200 desde PostgreSQL** (falla abierto), se cuenta el error |
 | `/health` | sigue en 200 y marca `redis: caido` → semáforo **amarillo** |
 
-**Métricas.** `GET /metrics` (JWT de admin) en cada servicio: estado de Redis y los
+**Métricas.** `GET /metrics` (JWT de admin) en cada servicio (por nginx:
+`/metrics/<servicio>`): estado de Redis y los
 contadores (`cache_aciertos`, `cache_fallos`, `invalidaciones_catalogo`,
 `revocaciones_consultadas`, `tokens_revocados_rechazados`, `login_correctos`,
 `login_bloqueados`, `refresh_correctos`, `refresh_rechazados`, `logout`,

@@ -137,11 +137,14 @@ if isbn:
     llamar('GET', '/books/{}?format=json'.format(isbn))
     estado, _, cab = llamar('GET', '/books/{}?format=json'.format(isbn))
     revisar(estado == 200 and cab.get('X-Cache') == 'HIT', 'GET /books/<isbn> tambien se cachea', cab.get('X-Cache'))
-estado, metricas, _ = llamar('GET', '/metrics', token=ADMIN)
+estado, metricas, _ = llamar('GET', '/metrics/catalogo', token=ADMIN)
 revisar(estado == 200 and metricas['contadores'].get('cache_aciertos', 0) >= 1,
         '/metrics del catalogo cuenta los aciertos', metricas)
-estado, _, _ = llamar('GET', '/metrics')
-revisar(estado == 401, '/metrics sin token, 401', estado)
+estado, _, _ = llamar('GET', '/metrics/catalogo')
+revisar(estado == 401, '/metrics/catalogo sin token, 401', estado)
+estado, metricas_login, _ = llamar('GET', '/metrics/login', token=ADMIN)
+revisar(estado == 200 and metricas_login['contadores'].get('login_correctos', 0) >= 1,
+        '/metrics/login cuenta los inicios de sesion', estado)
 
 print('4. Una escritura de otro servicio invalida la cache del catalogo')
 estado, _, cab = llamar('GET', '/books?limite=3&format=json')

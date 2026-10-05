@@ -433,6 +433,27 @@ r, _ = iniciar()
 revisar(r.status_code == 200, 'pasada la ventana, entra')
 revisar(FALSO.datos.get('metrics:login:login_correctos') is not None, 'las metricas cuentan los logins')
 
+# Metricas (solo admin, con la misma revocacion que el resto).
+sin_efectos()
+admin = dict(USUARIO, rol='admin')
+tok_admin, tok_lector = servicio.generar_jwt(admin), servicio.generar_jwt(USUARIO)
+r = cliente.get('/metrics')
+revisar(r.status_code == 401, '/metrics sin token, 401', r.status_code)
+r = cliente.get('/metrics', headers={'Authorization': 'Bearer ' + tok_lector})
+revisar(r.status_code == 403, '/metrics con lector, 403', r.status_code)
+servicio.metrica('login_correctos')
+r = cliente.get('/metrics', headers={'Authorization': 'Bearer ' + tok_admin})
+revisar(r.status_code == 200 and json.loads(r.data)['contadores'].get('login_correctos') == 1
+        and 'falsa' not in r.get_data(as_text=True), '/metrics con admin, 200 y con contadores (sin exponer la contrasena)', r.status_code)
+jti_a = jwt.decode(tok_admin, options={'verify_signature': False})['jti']
+FALSO.setex('jwt:revoked:' + jti_a, 1200, '1')
+r = cliente.get('/metrics', headers={'Authorization': 'Bearer ' + tok_admin})
+revisar(r.status_code == 401, '/metrics con un JWT revocado, 401', r.status_code)
+FALSO.caido = True
+r = cliente.get('/metrics', headers={'Authorization': 'Bearer ' + servicio.generar_jwt(admin)})
+revisar(r.status_code == 503, '/metrics con Redis caido, 503', r.status_code)
+FALSO.caido = False
+
 print('\n4. verificar_correo() contra un Postfix simulado')
 
 
@@ -512,7 +533,7 @@ revisar(r.status_code == 200 and b'swagger-ui' in r.data, 'GET /docs sirve Swagg
 
 r = cliente.get('/?format=json')
 puntos = {p['ruta'] for p in json.loads(r.data)['endpoints']}
-revisar({'/register', '/login', '/logout', '/session', '/health'} <= puntos,
+revisar({'/register', '/login', '/logout', '/session', '/health', '/metrics', '/token/refresh'} <= puntos,
         'el indice de / lista los endpoints')
 
 

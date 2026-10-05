@@ -984,6 +984,38 @@ def consultar_sesion():
     return responder('sesion', {'autenticada': True, 'usuario': _a_usuario(fila)})
 
 
+@app.route('/metrics', methods=['GET'])
+def metricas():
+    """Contadores compartidos entre workers (en Redis). Solo administradores.
+
+    Igual que en los demas servicios: JWT valido, no revocado y con rol admin.
+    """
+    cabecera = request.headers.get('Authorization', '')
+    token = cabecera[7:].strip() if cabecera.startswith('Bearer ') else ''
+    try:
+        reclamos = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITMO],
+                              issuer=JWT_EMISOR,
+                              options={'require': ['exp', 'iss', 'jti']})
+    except jwt.PyJWTError:
+        return error_respuesta(401, 'Esta operacion requiere un token valido.')
+    if redis_op(lambda c: c.exists('jwt:revoked:' + str(reclamos['jti']))):
+        return error_respuesta(401, 'Esta operacion requiere un token valido.')
+    if reclamos.get('rol') != 'admin':
+        return error_respuesta(403, 'Esta operacion requiere el rol administrador.')
+    prefijo = 'metrics:{}:'.format(SERVICIO)
+    contadores = {}
+
+    def leer(cliente):
+        for clave in cliente.scan_iter(match=prefijo + '*'):
+            contadores[clave[len(prefijo):]] = int(cliente.get(clave) or 0)
+
+    redis_op(leer)
+    cuerpo = json.dumps({'servicio': SERVICIO, 'redis': estado_redis(),
+                         'errores_redis_en_este_proceso': _errores_locales,
+                         'contadores': contadores}, ensure_ascii=False, indent=2)
+    return Response(cuerpo + '\n', content_type='application/json; charset=utf-8')
+
+
 @app.route('/health', methods=['GET'])
 def salud():
     componentes = {}
@@ -1044,6 +1076,7 @@ def indice():
             {'ruta': '/logout', 'metodo': 'POST', 'descripcion': 'Cerrar la sesion y revocar el JWT'},
             {'ruta': '/session', 'metodo': 'GET', 'descripcion': 'Consultar la sesion'},
             {'ruta': '/health', 'metodo': 'GET', 'descripcion': 'Estado del servicio'},
+            {'ruta': '/metrics', 'metodo': 'GET', 'descripcion': 'Contadores (JWT de admin)'},
             {'ruta': '/docs', 'metodo': 'GET', 'descripcion': 'Documentacion Swagger'},
         ],
     })
