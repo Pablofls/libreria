@@ -142,6 +142,24 @@ sudo firewall-cmd --add-port=5003-5006/tcp --permanent
 sudo firewall-cmd --reload && sudo firewall-cmd --list-ports
 ```
 
+### HTTPS para la API (443, certificado autofirmado)
+
+`deploy/nginx-api-tls.conf` publica login, Users, Authors, Pedidos y Pagos por
+443. Hace falta que la regla `libreria-permitir-https` exista y que la VM lleve
+la etiqueta `https-server` (si no, la regla se crea y no abre nada):
+
+```bash
+gcloud compute instances add-tags maquina01 --zone northamerica-south1-c --tags=https-server
+```
+
+```bash
+sudo firewall-cmd --add-port=443/tcp --permanent && sudo firewall-cmd --reload
+```
+
+Una vez probado el 443, los puertos 5003 a 5006 dejan de hacer falta desde
+fuera: borrar la regla `libreria-permitir-servicios-jwt` y el
+`firewall-cmd --remove-port=5003-5006/tcp --permanent`.
+
 ### Puertos que NO se abren, y por qué
 
 | Puerto | Servicio | Decisión |

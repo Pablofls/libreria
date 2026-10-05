@@ -708,10 +708,15 @@ cuatro servicios (login y catálogo aceptan además el nombre antiguo
 `CORS_ORIGENES` lista los orígenes de los clientes; vacío = ninguno, nunca `*`.
 Los logs no llevan contraseñas ni tokens y los errores no llevan SQL.
 
+**HTTPS.** `deploy/nginx-api-tls.conf` termina TLS en el 443 y reenvía a los
+servicios por loopback (`/login`, `/users`, `/authors`, `/orders`, `/payments`).
+Sin dominio el certificado es **autofirmado**: cifra, pero `curl` necesita
+`--cacert` y el navegador avisa. Con un dominio bastaría Let's Encrypt.
+
 **Límites conocidos.** El rol viaja en el token, así que un cambio de rol o una
 baja tarda hasta 20 minutos en notarse en los servicios (el refresh sí vuelve a
-consultar la base). Los puertos van por HTTP hasta que se active el bloque TLS
-de `deploy/nginx-library.conf`: mientras tanto los JWT viajan en claro.
+consultar la base). Los puertos 5003 a 5006 siguen hablando HTTP por su cuenta;
+por eso, tras activar el 443, se cierran hacia fuera.
 
 **Base de datos.** Pedidos y Pagos necesitan las tablas de
 `db/applied/20261004-pedidos-pagos.sql` (normalizadas hasta 4FN). Ya aplicado en la VM (2026-10-04).
