@@ -1,29 +1,49 @@
 # =============================================================================
-# cliente/cliente_escritorio.py — Parte 8: aplicacion de escritorio como
-# cliente SOAP.
+# cliente/cliente_escritorio.py — aplicacion de escritorio de la Libreria Online.
 #
 #     python3 cliente/cliente_escritorio.py
-#     ENDPOINT=http://VM:5001/soap python3 cliente/cliente_escritorio.py
+#     ENDPOINT=http://VM:5001/soap API_BASE=https://IP CA_CERT=ruta.crt \
+#         python3 cliente/cliente_escritorio.py
 #
 # Tkinter viene con Python: el cliente no necesita instalar nada, que es justo
 # lo que se espera de una aplicacion de escritorio repartida a varios usuarios.
 #
-# REGLA DEL EJERCICIO QUE ESTE ARCHIVO RESPETA
-#   La GUI NO sabe que existe PostgreSQL. No hay cadena de conexion, no hay SQL,
-#   no hay nombres de tabla. Su unica puerta al sistema es el endpoint SOAP.
-#   Si manana el modulo cambia de motor de base de datos, aqui no se toca nada.
+# QUE HAY AQUI
+#   - Pestaña "Clasificador Cloud": el cliente SOAP del Ejercicio 03, tal cual
+#     (sin login; va por ENDPOINT, normalmente tras un tunel SSH).
+#   - Pestañas Libros, Autores, Usuarios, Pedidos y Pagos: CRUD sobre los
+#     microservicios REST por HTTPS (API_BASE), con JWT. Viven en pestanas.py;
+#     la red y la sesion, en api_rest.py.
+#   - Barra superior: inicio/cierre de sesion y SEMAFOROS de los servicios
+#     (verde = ok, amarillo = funciona degradado porque Redis cayo, rojo = no
+#     responde), sondeados cada 10 segundos.
 #
-# El armado del sobre esta en este archivo a proposito, para que se vea el
+# REGLA QUE ESTE ARCHIVO RESPETA
+#   La GUI NO sabe que existe PostgreSQL ni Redis. No hay cadena de conexion, no
+#   hay SQL, no hay nombres de tabla. Sus unicas puertas al sistema son el
+#   endpoint SOAP y los endpoints REST. Si manana cambia el motor de base de
+#   datos, aqui no se toca nada.
+#
+# El armado del sobre SOAP esta en este archivo a proposito, para que se vea el
 # trabajo que hace un cliente manual frente al generado desde el WSDL
 # (tests/cliente_zeep.py, Tarea 4).
 # =============================================================================
 
 import os
+import queue
+import sys
+import threading
 import tkinter as tk
+import traceback
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from tkinter import messagebox, ttk
 from xml.etree import ElementTree as ET
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from api_rest import API_BASE, SERVICIOS, ClienteApi, ErrorApi, probar_tcp  # noqa: E402
+from pestanas import PESTANAS                                                # noqa: E402
 
 ENDPOINT = os.getenv('ENDPOINT', 'http://127.0.0.1:5001/soap')
 TIPO_CLIENTE = 'escritorio-tkinter'
@@ -173,12 +193,30 @@ class Aplicacion(tk.Tk):
 
     def __init__(self):
         super().__init__()
-        self.title('Clasificador Cloud — Libreria Online')
-        self.geometry('900x620')
+        self.title('Libreria Online — Cliente de escritorio')
+        self.geometry('1040x760')
         self.conceptos = []
+        self.api = ClienteApi()
+        self._cola = queue.Queue()
+        self._red_avisada = False
+        self._sesion_ui = False
+        self.luces = {}                      # nombre -> (canvas, figura, detalle)
 
-        marco = ttk.Frame(self, padding=12)
-        marco.pack(fill='both', expand=True)
+        self._barra_superior()
+        self.pie_global = ttk.Label(self, text='Servidor: {}'.format(API_BASE),
+                                    foreground='#555', padding=(10, 3))
+        self.pie_global.pack(side='bottom', fill='x')
+        self.cuaderno = ttk.Notebook(self)
+        self.cuaderno.pack(fill='both', expand=True, padx=6, pady=(0, 2))
+        self.pestanas = []
+        for titulo, clase in PESTANAS:
+            pestana = clase(self, self.cuaderno)
+            self.cuaderno.add(pestana, text=titulo)
+            self.pestanas.append(pestana)
+        self.cuaderno.bind('<<NotebookTabChanged>>', self._pestana_elegida)
+
+        marco = ttk.Frame(self.cuaderno, padding=12)
+        self.cuaderno.add(marco, text='Clasificador Cloud')
 
         datos = ttk.LabelFrame(marco, text='Clasificador', padding=10)
         datos.pack(fill='x')
@@ -227,6 +265,12 @@ class Aplicacion(tk.Tk):
         self.estado = ttk.Label(marco, text='Endpoint: {}'.format(ENDPOINT),
                                 foreground='#555')
         self.estado.pack(fill='x', pady=(8, 0))
+
+        self.protocol('WM_DELETE_WINDOW', self._salir)
+        self.after(80, self._vaciar_cola)
+        self._sesion_cambio()
+        self._sondear()
+        self.after(30000, self._mantener_sesion)
 
     def _entrada(self, padre, etiqueta, fila, ancho=24):
         ttk.Label(padre, text=etiqueta + ':').grid(row=fila, column=0,
@@ -341,6 +385,206 @@ class Aplicacion(tk.Tk):
             '{}\n\nClasificados: {}\nPendientes: {}\n\nPor modelo:\n{}'.format(
                 progreso['nombre'], progreso['clasificados'],
                 progreso['pendientes'], desglose))
+
+
+    # =========================================================================
+    # Sesion, hilos y semaforos (REST)
+    # =========================================================================
+    COLORES = {'verde': '#2e9e44', 'amarillo': '#e0a800', 'rojo': '#c62828', 'gris': '#9e9e9e'}
+
+    def _barra_superior(self):
+        barra = ttk.Frame(self, padding=(10, 6))
+        barra.pack(side='top', fill='x')
+        self.boton_sesion = ttk.Button(barra, text='Iniciar sesion', command=self._clic_sesion)
+        self.boton_sesion.pack(side='left')
+        self.etiqueta_sesion = ttk.Label(barra, text='', padding=(8, 0))
+        self.etiqueta_sesion.pack(side='left')
+        luces = ttk.Frame(barra)
+        luces.pack(side='right')
+        for nombre in SERVICIOS + ('redis', 'soap'):
+            marco = ttk.Frame(luces)
+            marco.pack(side='left', padx=5)
+            lienzo = tk.Canvas(marco, width=14, height=14, highlightthickness=0)
+            figura = lienzo.create_oval(2, 2, 13, 13, fill=self.COLORES['gris'], outline='#666')
+            lienzo.pack(side='left')
+            ttk.Label(marco, text=nombre).pack(side='left', padx=(3, 0))
+            self.luces[nombre] = [lienzo, figura, 'Sin datos todavia.']
+            lienzo.bind('<Button-1>', lambda _e, n=nombre: messagebox.showinfo(n, self.luces[n][2]))
+
+    def _pintar_luz(self, nombre, color, detalle):
+        lienzo, figura, _ = self.luces[nombre]
+        lienzo.itemconfigure(figura, fill=self.COLORES[color])
+        self.luces[nombre][2] = detalle
+
+    def _sondear(self):
+        """Cada 10 s, en hilos: un semaforo por servicio, uno de Redis (lo que
+        informan los servicios) y uno del SOAP."""
+        def trabajo():
+            with ThreadPoolExecutor(max_workers=len(SERVICIOS) + 1) as pool:
+                futuros = {s: pool.submit(self.api.semaforo, s) for s in SERVICIOS}
+                soap = pool.submit(probar_tcp, ENDPOINT)
+                return {s: f.result() for s, f in futuros.items()}, soap.result()
+
+        def listo(resultado):
+            servicios, soap_arriba = resultado
+            for nombre, (color, detalle, _redis) in servicios.items():
+                self._pintar_luz(nombre, color, detalle)
+            estados = [r for (_c, _d, r) in servicios.values() if r]
+            if any(r == 'caido' for r in estados):
+                self._pintar_luz('redis', 'rojo', 'Redis no responde: sin sesiones ni revocacion; '
+                                 'solo siguen las lecturas del catalogo.')
+            elif any(r == 'no configurado' for r in estados):
+                self._pintar_luz('redis', 'amarillo', 'Algun servicio no tiene REDIS_URL.')
+            elif estados:
+                self._pintar_luz('redis', 'verde', 'Redis responde en todos los servicios.')
+            else:
+                self._pintar_luz('redis', 'gris', 'Ningun servicio responde.')
+            self._pintar_luz('soap', 'verde' if soap_arriba else 'rojo',
+                             'Escucha en {}.'.format(ENDPOINT) if soap_arriba
+                             else 'Nada escucha en {} (¿falta el tunel SSH?).'.format(ENDPOINT))
+            self.after(10000, self._sondear)
+
+        def fallo(_error):
+            self.after(10000, self._sondear)
+        self.en_hilo(trabajo, listo, fallo)
+
+    def _mantener_sesion(self):
+        """Renueva el JWT ANTES de que caduque, aunque la persona no toque nada."""
+        def siguiente(_=None):
+            self.after(30000, self._mantener_sesion)
+
+        def listo(vigente):
+            if not vigente and self._sesion_ui:
+                self._sesion_cambio()
+                messagebox.showwarning('Sesion', 'Tu sesion termino. Inicia sesion de nuevo.')
+            siguiente()
+        if self.api.sesion_activa:
+            self.en_hilo(self.api.renovar_si_hace_falta, listo, lambda e: siguiente())
+        else:
+            siguiente()
+
+    def en_hilo(self, trabajo, ok=None, error=None):
+        """Corre `trabajo` fuera del hilo de Tk y entrega el resultado dentro."""
+        def correr():
+            try:
+                resultado = trabajo()
+            except BaseException as excepcion:      # noqa: BLE001 - se entrega a la GUI
+                self._cola.put((error or self.mostrar_error, excepcion))
+                return
+            self._cola.put((self._exito, None))
+            if ok:
+                self._cola.put((ok, resultado))
+        threading.Thread(target=correr, daemon=True).start()
+
+    def _exito(self, _=None):
+        self._red_avisada = False
+
+    def _vaciar_cola(self):
+        try:
+            while True:
+                funcion, argumento = self._cola.get_nowait()
+                try:
+                    funcion(argumento)
+                except Exception:                   # noqa: BLE001 - un callback roto no mata la GUI
+                    traceback.print_exc()
+        except queue.Empty:
+            pass
+        self.after(80, self._vaciar_cola)
+
+    def pie(self, texto, color='#555'):
+        self.pie_global.configure(text=texto, foreground=color)
+
+    def mostrar_error(self, error):
+        if not isinstance(error, ErrorApi):
+            traceback.print_exception(type(error), error, error.__traceback__)
+            self.pie('Ocurrio un error inesperado.', '#b00')
+            return messagebox.showerror('No se pudo completar',
+                                        'Ocurrio un error inesperado. Intenta de nuevo.')
+        self.pie(error.mensaje, '#b00')
+        if self._sesion_ui and not self.api.sesion_activa:      # el servidor dio la sesion por perdida
+            self._sesion_cambio()
+            return messagebox.showwarning('Sesion', error.mensaje)
+        if error.estado == 0:
+            # Sin red: se avisa UNA vez por caida, no una vez por pestaña.
+            if not self._red_avisada:
+                self._red_avisada = True
+                messagebox.showerror('Sin conexion', error.texto())
+            return
+        mostrar = messagebox.showerror if error.estado >= 500 else messagebox.showwarning
+        mostrar('No se pudo completar', error.texto())
+
+    def _clic_sesion(self):
+        if self.api.sesion_activa:
+            self.en_hilo(self.api.cerrar_sesion, lambda _: self._sesion_cambio())
+        else:
+            self._dialogo_login()
+
+    def _dialogo_login(self):
+        ventana = tk.Toplevel(self)
+        ventana.title('Iniciar sesion')
+        ventana.transient(self)
+        ventana.resizable(False, False)
+        marco = ttk.Frame(ventana, padding=14)
+        marco.pack()
+        correo, clave = tk.StringVar(), tk.StringVar()
+        ttk.Label(marco, text='Correo:').grid(row=0, column=0, sticky='w', pady=3)
+        entrada = ttk.Entry(marco, textvariable=correo, width=34)
+        entrada.grid(row=0, column=1, padx=8)
+        ttk.Label(marco, text='Contraseña:').grid(row=1, column=0, sticky='w', pady=3)
+        ttk.Entry(marco, textvariable=clave, width=34, show='*').grid(row=1, column=1, padx=8)
+        mensaje = ttk.Label(marco, text='', foreground='#b00', wraplength=300)
+        mensaje.grid(row=2, column=0, columnspan=2, sticky='w', pady=(6, 0))
+
+        def entrar(_evento=None):
+            usuario, secreto = correo.get().strip(), clave.get()
+            clave.set('')                    # la contraseña no se queda en el widget
+            if not usuario or not secreto:
+                mensaje.configure(text='Captura el correo y la contraseña.')
+                return
+            mensaje.configure(text='Entrando...', foreground='#555')
+
+            def fallo(error):
+                mensaje.configure(text=error.texto() if isinstance(error, ErrorApi)
+                                  else 'No se pudo iniciar sesion.', foreground='#b00')
+            self.en_hilo(lambda: self.api.iniciar_sesion(usuario, secreto),
+                         lambda _: (ventana.destroy(), self._sesion_cambio()), fallo)
+        ttk.Button(marco, text='Entrar', command=entrar).grid(row=3, column=1, sticky='e', pady=(10, 0))
+        ventana.bind('<Return>', entrar)
+        entrada.focus_set()
+        ventana.grab_set()
+
+    def _sesion_cambio(self):
+        activa = self.api.sesion_activa
+        self._sesion_ui = activa
+        if activa:
+            u = self.api.usuario
+            self.etiqueta_sesion.configure(text='{} ({})'.format(u.get('nombre') or u.get('email'), u.get('rol')))
+            self.boton_sesion.configure(text='Cerrar sesion')
+        else:
+            self.etiqueta_sesion.configure(text='Sin sesion: solo se leen libros y autores')
+            self.boton_sesion.configure(text='Iniciar sesion')
+        for pestana in self.pestanas:
+            pestana.sesion_cambio()
+
+    def _pestana_elegida(self, _evento=None):
+        actual = self.cuaderno.nametowidget(self.cuaderno.select())
+        if actual in self.pestanas and (self.api.sesion_activa or not actual.requiere_sesion):
+            actual.cargar()
+
+    def _salir(self):
+        """Al cerrar la ventana se revoca el JWT: un token no debe sobrevivir a la app."""
+        if self.api.sesion_activa:
+            cierre = threading.Thread(target=lambda: self._intentar(self.api.cerrar_sesion), daemon=True)
+            cierre.start()
+            cierre.join(3)
+        self.destroy()
+
+    @staticmethod
+    def _intentar(funcion):
+        try:
+            funcion()
+        except Exception:                           # noqa: BLE001 - al salir no hay nada mas que hacer
+            pass
 
 
 if __name__ == '__main__':
