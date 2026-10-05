@@ -39,6 +39,7 @@ from xml.etree import ElementTree as ET
 
 import jwt
 import psycopg2
+import redis
 from psycopg2 import errors as pgerrors
 from psycopg2.extras import RealDictCursor
 from psycopg2.pool import ThreadedConnectionPool
@@ -101,10 +102,12 @@ API_TOKEN = os.getenv('API_TOKEN', '').strip()
 # es un secreto compartido, no una clave propia de este servicio. Sin valor
 # por omision y el servicio no arranca sin el, igual que SECRET_KEY en login:
 # un default en un repositorio publico dejaria falsificar tokens de escritura.
-JWT_SECRET = os.getenv('JWT_SECRET', '').strip()
+# JWT_SECRET_KEY es el nombre comun a todos los servicios; JWT_SECRET se sigue
+# aceptando para no romper el .env ya desplegado.
+JWT_SECRET = (os.getenv('JWT_SECRET_KEY') or os.getenv('JWT_SECRET') or '').strip()
 if not JWT_SECRET:
     raise RuntimeError(
-        'Falta JWT_SECRET. Debe ser el mismo valor en el .env de este servicio '
+        'Falta JWT_SECRET_KEY (o JWT_SECRET). Debe ser el mismo valor en el .env de este servicio '
         'y en el de apps/services/login (python3 -c "import secrets; '
         'print(secrets.token_urlsafe(48))"). El servicio no arranca sin el: '
         'sin secreto no hay forma de verificar los JWT que login emite, y las '
@@ -494,6 +497,8 @@ def salud_a_xml(datos):
     ET.SubElement(raiz, 'database').text = datos['database']
     if 'books' in datos:
         ET.SubElement(raiz, 'books').text = str(datos['books'])
+    if 'redis' in datos:
+        ET.SubElement(raiz, 'redis').text = datos['redis']
     return raiz
 
 
@@ -875,6 +880,169 @@ def datos_entrantes():
 
 # Rol que exige el JWT para escribir. No basta con que el token sea valido:
 # un lector autenticado sigue sin poder insertar, actualizar ni borrar.
+# -----------------------------------------------------------------------------
+# Redis: capa compartida (revocacion de JWT, cache, metricas). PostgreSQL sigue
+# siendo la fuente de datos; Redis nunca guarda nada que no pueda perderse.
+#
+# POLITICA ANTE UNA CAIDA, que es lo que pide el ejercicio:
+#   - Revocacion y autorizacion FALLAN CERRADO: si no se puede comprobar que un
+#     token no esta revocado, no se acepta (503). Nunca "por si acaso".
+#   - Las lecturas cacheadas FALLAN ABIERTO: se sirven desde PostgreSQL.
+# La URL (con la contrasena) sale de REDIS_URL, del .env; en los logs se enmascara.
+# -----------------------------------------------------------------------------
+REDIS_URL = os.getenv('REDIS_URL', '').strip()
+REDIS_TIMEOUT = float(os.getenv('REDIS_TIMEOUT', '1.5'))
+CACHE_TTL = int(os.getenv('CACHE_TTL_SEGUNDOS', '60'))
+SERVICIO = 'catalogo'
+
+
+class RedisNoDisponible(Exception):
+    """Redis no esta configurado o no responde a tiempo."""
+
+
+_redis = None
+_errores_locales = 0     # por proceso: sigue contando aunque Redis este caido
+
+
+def _url_enmascarada(url):
+    return re.sub(r'(://[^:@/]*:)[^@]*@', r'\1***@', url)
+
+
+def redis_cliente():
+    global _redis
+    if not REDIS_URL:
+        raise RedisNoDisponible('REDIS_URL no esta configurada')
+    if _redis is None:
+        _redis = redis.Redis.from_url(
+            REDIS_URL, socket_timeout=REDIS_TIMEOUT,
+            socket_connect_timeout=REDIS_TIMEOUT, health_check_interval=30,
+            decode_responses=True)
+        log.info('Cliente Redis creado (%s)', _url_enmascarada(REDIS_URL))
+    return _redis
+
+
+def redis_op(funcion):
+    """Ejecuta funcion(cliente). Cualquier fallo de Redis -> RedisNoDisponible."""
+    global _errores_locales
+    try:
+        return funcion(redis_cliente())
+    except redis.RedisError as error:
+        _errores_locales += 1
+        log.error('Redis no disponible: %s', type(error).__name__)
+        raise RedisNoDisponible() from error
+
+
+def metrica(nombre, cantidad=1):
+    """Contador compartido entre workers. Si Redis falla, no pasa nada."""
+    try:
+        redis_cliente().incrby('metrics:{}:{}'.format(SERVICIO, nombre), cantidad)
+    except (redis.RedisError, RedisNoDisponible):
+        pass
+
+
+@app.errorhandler(RedisNoDisponible)
+def _redis_caido(_error):
+    respuesta = error_respuesta(
+        503, 'No se puede verificar la sesion en este momento. Intenta de nuevo.')
+    respuesta.headers['Retry-After'] = '5'
+    return respuesta
+
+
+def revocado(jti):
+    """True si el jti esta en la lista de revocacion jwt:revoked:<jti>."""
+    metrica('revocaciones_consultadas')
+    if redis_op(lambda c: c.exists('jwt:revoked:' + jti)):
+        metrica('tokens_revocados_rechazados')
+        return True
+    return False
+
+
+def estado_redis():
+    if not REDIS_URL:
+        return 'no configurado'
+    try:
+        redis_cliente().ping()
+        return 'ok'
+    except redis.RedisError:
+        return 'caido'
+
+
+def invalidar_catalogo():
+    """Borra books:* tras escribir algo que se ve en el catalogo. Falla abierto:
+    si Redis no responde, lo viejo caduca solo en CACHE_TTL_SEGUNDOS."""
+    if not REDIS_URL:
+        return
+    try:
+        cliente = redis_cliente()
+        claves = list(cliente.scan_iter(match='books:*', count=200))
+        if claves:
+            cliente.unlink(*claves)
+        metrica('invalidaciones_catalogo')
+    except redis.RedisError as error:
+        log.warning('No se pudo invalidar la cache del catalogo: %s',
+                    type(error).__name__)
+
+
+
+
+# --- Cache de lecturas del catalogo (books:*) --------------------------------
+# Falla ABIERTO: si Redis no responde, se lee de PostgreSQL y se cuenta el error.
+# Se cachea el dict neutro ANTES de serializar, asi sirve igual para XML y JSON.
+def cache_leer(clave):
+    global _errores_locales
+    if not REDIS_URL:
+        return None
+    try:
+        crudo = redis_cliente().get(clave)
+    except redis.RedisError as error:
+        _errores_locales += 1
+        log.warning('Cache no disponible (se lee de PostgreSQL): %s', type(error).__name__)
+        metrica('cache_errores')
+        return None
+    if crudo is None:
+        metrica('cache_fallos')
+        return None
+    metrica('cache_aciertos')
+    return json.loads(crudo)
+
+
+def cache_guardar(clave, datos):
+    if not REDIS_URL:
+        return
+    try:
+        redis_cliente().setex(clave, CACHE_TTL,
+                              json.dumps(datos, default=_json_serializable))
+    except redis.RedisError as error:
+        log.warning('No se pudo guardar en cache: %s', type(error).__name__)
+        metrica('cache_errores')
+
+
+def con_marca_de_cache(respuesta, acierto):
+    respuesta.headers['X-Cache'] = 'HIT' if acierto else 'MISS'
+    return respuesta
+
+
+@app.route('/metrics', methods=['GET'])
+def metricas():
+    """Contadores compartidos entre workers (en Redis). Solo administradores."""
+    reclamos = _reclamos_jwt()
+    if reclamos is None:
+        return error_respuesta(401, 'Esta operacion requiere autenticacion.')
+    if reclamos.get('rol') != ROL_ESCRITURA:
+        return error_respuesta(403, 'Esta operacion requiere el rol administrador.')
+    prefijo = 'metrics:{}:'.format(SERVICIO)
+    contadores = {}
+
+    def leer(cliente):
+        for clave in cliente.scan_iter(match=prefijo + '*'):
+            contadores[clave[len(prefijo):]] = int(cliente.get(clave) or 0)
+
+    redis_op(leer)
+    return responder_json({'servicio': SERVICIO, 'redis': estado_redis(),
+                           'errores_redis_en_este_proceso': _errores_locales,
+                           'contadores': contadores})
+
+
 ROL_ESCRITURA = 'admin'
 
 
@@ -898,10 +1066,20 @@ def _reclamos_jwt():
     if not token:
         return None
     try:
-        return jwt.decode(token, JWT_SECRET, algorithms=JWT_ALGORITMOS,
-                          issuer=JWT_EMISOR)
+        reclamos = jwt.decode(
+            token, JWT_SECRET, algorithms=JWT_ALGORITMOS, issuer=JWT_EMISOR,
+            options={'require': ['exp', 'iss', 'jti']})
     except jwt.PyJWTError:
         return None
+    jti = reclamos['jti']
+    if not isinstance(jti, str) or not 8 <= len(jti) <= 64:
+        return None
+    # Ultimo control: que el token no haya sido revocado (logout). Si Redis no
+    # responde, RedisNoDisponible sube hasta su handler y responde 503: no se
+    # autoriza una escritura sin poder comprobarlo.
+    if revocado(jti):
+        return None
+    return reclamos
 
 
 def _clave_api_valida():
@@ -986,10 +1164,19 @@ def listar_libros():
     if limite is not None:
         limite = max(1, min(limite, 500))
 
+    desplazamiento = max(0, desplazamiento)
+    clave = 'books:list:{}:{}:{}:{}'.format(
+        limite if limite is not None else 'todos', desplazamiento, orden, direccion)
+    datos = cache_leer(clave)
+    if datos is not None:
+        return con_marca_de_cache(responder('library', datos), True)
+
     with cursor_bd() as cur:
         libros = leer_libros(cur, orden=orden, direccion=direccion,
-                             limite=limite, desplazamiento=max(0, desplazamiento))
-    return responder_catalogo(libros)
+                             limite=limite, desplazamiento=desplazamiento)
+    datos = {'count': len(libros), 'books': [libro_a_dict(l) for l in libros]}
+    cache_guardar(clave, datos)
+    return con_marca_de_cache(responder('library', datos), False)
 
 
 # Filtros de busqueda. La clave elige un fragmento de SQL escrito aqui; el
@@ -1088,11 +1275,18 @@ def buscar_libros():
 @app.route('/books/<isbn>', methods=['GET'])
 @app.route('/api/book/<isbn>', methods=['GET'])
 def obtener_libro(isbn):
+    isbn = isbn.strip()
+    clave = 'books:' + isbn
+    datos = cache_leer(clave)
+    if datos is not None:
+        return con_marca_de_cache(responder('library', datos), True)
     with cursor_bd() as cur:
-        libro = buscar_por_isbn(cur, isbn.strip())
+        libro = buscar_por_isbn(cur, isbn)
     if libro is None:
-        return error_respuesta(404, 'No existe un libro con ese ISBN.')
-    return responder_catalogo([libro])
+        return error_respuesta(404, 'No existe un libro con ese ISBN.')   # no se cachea
+    datos = {'count': 1, 'books': [libro_a_dict(libro)]}
+    cache_guardar(clave, datos)
+    return con_marca_de_cache(responder('library', datos), False)
 
 
 @app.route('/books/author/<int:author_id>', methods=['GET'])
@@ -1152,6 +1346,7 @@ def insertar_libro():
     except pgerrors.CheckViolation:
         return error_respuesta(400, 'Los datos no cumplen una regla del catalogo.')
 
+    invalidar_catalogo()      # books:* : el listado y la ficha ya no valen
     return responder_catalogo([libro], estado=201)
 
 
@@ -1213,6 +1408,7 @@ def actualizar_libro(isbn=None):
     except pgerrors.CheckViolation:
         return error_respuesta(400, 'Los datos no cumplen una regla del catalogo.')
 
+    invalidar_catalogo()      # tambien el ISBN viejo si cambio
     return responder_catalogo([libro])
 
 
@@ -1243,6 +1439,7 @@ def borrar_libro(isbn=None):
     if fila is None:
         return error_respuesta(404, 'No existe un libro con ese ISBN.')
 
+    invalidar_catalogo()
     return responder('result', {
         'status': 'ok',
         'message': 'Libro eliminado del catalogo.',
@@ -1262,8 +1459,11 @@ def salud():
         return responder('health',
                          {'status': 'error', 'database': 'sin conexion'}, 503)
 
+    # Redis no es dependencia dura: caido, el catalogo sigue sirviendo desde
+    # PostgreSQL (degradado).
     return responder('health',
-                     {'status': 'ok', 'database': 'conectada', 'books': total})
+                     {'status': 'ok', 'database': 'conectada', 'books': total,
+                      'redis': estado_redis()})
 
 
 @app.route('/library.css', methods=['GET'])
