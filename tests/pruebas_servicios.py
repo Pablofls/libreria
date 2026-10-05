@@ -78,16 +78,22 @@ def iniciar(email_var, pass_var):
         'email': os.environ[email_var], 'password': os.environ[pass_var]})
     if estado != 200 or not cuerpo.get('token'):
         sys.exit('No se pudo iniciar sesion con {} (estado {})'.format(email_var, estado))
-    return cuerpo['token'], cuerpo['usuario']['id']
+    return cuerpo['token'], cuerpo['usuario']['id'], cuerpo.get('refresh_token')
 
 
 print('1. Login, claims y renovacion')
-ADMIN, ADMIN_ID = iniciar('ADMIN_EMAIL', 'ADMIN_PASS')
-LECTOR, LECTOR_ID = iniciar('LECTOR_EMAIL', 'LECTOR_PASS')
-estado, nuevo = llamar('login', 'POST', '/token/refresh?format=json', token=LECTOR)
-revisar(estado == 200 and nuevo.get('token'), 'POST /token/refresh con token vigente', estado)
+ADMIN, ADMIN_ID, _ = iniciar('ADMIN_EMAIL', 'ADMIN_PASS')
+LECTOR, LECTOR_ID, LECTOR_REFRESH = iniciar('LECTOR_EMAIL', 'LECTOR_PASS')
+estado, nuevo = llamar('login', 'POST', '/token/refresh?format=json',
+                       {'refresh_token': LECTOR_REFRESH})
+revisar(estado == 200 and nuevo and nuevo.get('token') and nuevo.get('refresh_token'),
+        'POST /token/refresh con refresh_token, 200 (JWT y refresh nuevos)', estado)
+if estado == 200:
+    LECTOR = nuevo['token']   # el JWT anterior de la sesion queda revocado
+estado, _ = llamar('login', 'POST', '/token/refresh?format=json', {'refresh_token': LECTOR_REFRESH})
+revisar(estado == 401, 'el refresh_token ya usado no sirve, 401', estado)
 estado, _ = llamar('login', 'POST', '/token/refresh?format=json')
-revisar(estado == 401, 'refresh sin token, 401', estado)
+revisar(estado == 400, 'refresh sin refresh_token, 400', estado)
 
 print('2. Authors')
 estado, autores = llamar('authors', 'GET', '/authors')
