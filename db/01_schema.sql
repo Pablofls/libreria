@@ -341,7 +341,7 @@ CREATE UNIQUE INDEX ux_imagenes_portada_unica
 
 CREATE INDEX ix_imagenes_libro ON imagenes_libros (libro_id);
 
--- (Pedidos y pagos: pendiente de aplicar en la VM, ver db/pending/20261004-pedidos-pagos.sql.
+-- (Pedidos y pagos: aplicado en la VM el 2026-10-04, ver db/applied/20261004-pedidos-pagos.sql.
 -- Normalizado hasta 4FN; el razonamiento tabla por tabla esta en ese archivo.)
 -- ---------------------------------------------------------------------------
 -- Catalogos

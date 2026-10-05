@@ -1,5 +1,5 @@
 -- =============================================================================
--- 20261004-pedidos-pagos.sql   [PENDIENTE: aun no se ejecuta en la VM]
+-- 20261004-pedidos-pagos.sql   [APLICADO en la VM el 2026-10-04]
 --
 -- QUE HACE
 --   Crea el soporte de datos de los microservicios Pedidos y Pagos: tres

@@ -329,7 +329,7 @@ imagenes_libros
 
 
 ──────────────── Pedidos y pagos (apps/services/pedidos y pagos) ────────
-PENDIENTE de aplicar en la VM: db/pending/20261004-pedidos-pagos.sql.
+Aplicado en la VM el 2026-10-04: db/applied/20261004-pedidos-pagos.sql.
 Normalizadas hasta 4FN: catálogos con FK, sin total almacenado (lo calcula la
 vista v_pedidos_total) y el historial de estados aparte de las líneas.
 
@@ -714,8 +714,7 @@ consultar la base). Los puertos van por HTTP hasta que se active el bloque TLS
 de `deploy/nginx-library.conf`: mientras tanto los JWT viajan en claro.
 
 **Base de datos.** Pedidos y Pagos necesitan las tablas de
-`db/pending/20261004-pedidos-pagos.sql` (normalizadas hasta 4FN). Hasta que corra
-en la VM, esos dos servicios responden 500 en sus rutas con SQL.
+`db/applied/20261004-pedidos-pagos.sql` (normalizadas hasta 4FN). Ya aplicado en la VM (2026-10-04).
 
 Despliegue de cada uno (cambiar `users` por el servicio que toque):
 
