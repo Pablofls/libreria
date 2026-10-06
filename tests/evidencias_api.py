@@ -187,7 +187,9 @@ def seccion_cache():
     if estado == 201:
         llamar('Limpieza: se borra el autor de prueba', 'DELETE', '/authors/{}'.format(autor['id']),
                token=token, esperado=204)
-    llamar('Metricas del catalogo (solo admin): aciertos, fallos, invalidaciones', 'GET', '/metrics/catalogo',
+    llamar('Metricas del catalogo (solo admin): aciertos y fallos de cache', 'GET', '/metrics/catalogo',
+           token=token, esperado=200)
+    llamar('Metricas de authors: invalidaciones de books:* que provoco al escribir', 'GET', '/metrics/authors',
            token=token, esperado=200)
     llamar('Metricas del login: inicios de sesion, refresh, logout', 'GET', '/metrics/login',
            token=token, esperado=200)
