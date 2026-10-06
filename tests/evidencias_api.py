@@ -44,15 +44,20 @@ def imprimir(texto=''):
     SALIDA.append(texto)
 
 
-def tapar(valor):
+def tapar(valor, clave=''):
+    """Tapa un secreto. Contrasenas y refresh tokens: NADA de su contenido (solo
+    el largo). Un JWT muestra unicamente su encabezado publico ("eyJhbGciOi",
+    que es igual en todos), nunca el payload ni la firma."""
     texto = str(valor)
-    return '{}…({} caracteres)'.format(texto[:10], len(texto)) if len(texto) > 12 else '********'
+    if clave == 'token':
+        return '{}…({} caracteres)'.format(texto[:10], len(texto))
+    return '******** ({} caracteres)'.format(len(texto))
 
 
 def limpio(dato):
     """Copia del JSON con los secretos tapados."""
     if isinstance(dato, dict):
-        return {k: (tapar(v) if k in SECRETOS and isinstance(v, str) else limpio(v)) for k, v in dato.items()}
+        return {k: (tapar(v, k) if k in SECRETOS and isinstance(v, str) else limpio(v)) for k, v in dato.items()}
     if isinstance(dato, list):
         return [limpio(x) for x in dato]
     return dato
@@ -84,7 +89,7 @@ def llamar(titulo, metodo, ruta, cuerpo=None, token=None, esperado=None, cabecer
     imprimir('━━ {}. {}'.format(NUMERO[0], titulo))
     curl = 'curl -s -X {} {}{}'.format(metodo, '--cacert $CA_CERT ' if CONTEXTO else '', "'" + url + "'")
     if token:
-        curl += " -H 'Authorization: Bearer <JWT {}>'".format(tapar(token).split('…')[0])
+        curl += " -H 'Authorization: Bearer {}…'".format(token[:10])
     if cuerpo is not None:
         curl += " -H 'Content-Type: application/json' -d '{}'".format(json.dumps(limpio(cuerpo), ensure_ascii=False))
     imprimir('  $ ' + curl)
