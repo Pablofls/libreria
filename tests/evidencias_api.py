@@ -232,7 +232,7 @@ def seccion_crud():
            {'lineas': [{'libro_id': libro['id'], 'cantidad': 2}]}, token=token, esperado=200)
     e, ped, _ = llamar('PEDIDOS  GET /orders/{id} (lineas e historial)', 'GET', '/orders/%d' % pid, token=token, esperado=200)
     ep, pago, _ = llamar('PAGOS    POST /payments (pedido pasa a pagado)', 'POST', '/payments',
-                        {'pedido_id': pid, 'monto': ped['total'], 'metodo': 'tarjeta', 'referencia': 'EVID-REDIS'},
+                        {'pedido_id': pid, 'monto': ped['total'], 'metodo': 'tarjeta', 'referencia': 'EVID-REDIS-%d' % int(time.time())},
                         token=token, esperado=201)
     llamar('PAGOS    GET /payments', 'GET', '/payments', token=token, esperado=200)
     llamar('PEDIDOS  PATCH /orders/{id}/status = cancelado (devuelve stock)', 'PATCH', '/orders/%d/status' % pid,
