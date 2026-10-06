@@ -24,6 +24,7 @@ Solo biblioteca estandar. Las credenciales llegan por variable de entorno.
 import base64
 import json
 import os
+import secrets
 import ssl
 import sys
 import time
@@ -207,7 +208,21 @@ def seccion_crud():
     llamar('AUTHORS  PATCH /authors/{id}', 'PATCH', '/authors/%d' % aid, {'biografia': 'Editada'}, token=token, esperado=200)
     llamar('AUTHORS  GET /authors/{id} (publico)', 'GET', '/authors/%d' % aid, esperado=200)
     llamar('AUTHORS  DELETE /authors/{id}', 'DELETE', '/authors/%d' % aid, token=token, esperado=204)
-    llamar('USERS    GET /users (admin)', 'GET', '/users', token=token, esperado=200)
+    _, usuarios, _ = llamar('USERS    GET /users (admin)', 'GET', '/users', token=token, esperado=200)
+    correo = 'prueba.jwt.servicios@example.com'           # cuenta de pruebas, siempre la misma
+    prueba = next((u for u in usuarios if u['email'] == correo), None)
+    if prueba is None:
+        _, prueba, _ = llamar('USERS    POST /users (alta)', 'POST', '/users',
+                              {'nombre': 'Prueba', 'apellido_paterno': 'Evidencia', 'apellido_materno': 'Redis',
+                               'email': correo, 'password': secrets.token_urlsafe(16)}, token=token, esperado=201)
+    uid = prueba['id'] if isinstance(prueba, dict) and 'id' in prueba else 0
+    llamar('USERS    PUT /users/{id}', 'PUT', '/users/%d' % uid,
+           {'nombre': 'Prueba', 'apellido_paterno': 'Evidencia', 'apellido_materno': 'Redis', 'email': correo},
+           token=token, esperado=200)
+    llamar('USERS    PATCH /users/{id}', 'PATCH', '/users/%d' % uid, {'nombre': 'Prueba editada'},
+           token=token, esperado=200)
+    llamar('USERS    DELETE /users/{id} (baja logica: activo = false)', 'DELETE', '/users/%d' % uid,
+           token=token, esperado=200)
     _, libros, _ = llamar('PEDIDOS  GET /orders/books (ids, precio y stock)', 'GET', '/orders/books', token=token, esperado=200)
     libro = next((l for l in libros if l['stock'] > 2), libros[0])
     e, pedido, _ = llamar('PEDIDOS  POST /orders (descuenta stock)', 'POST', '/orders',
@@ -216,13 +231,13 @@ def seccion_crud():
     llamar('PEDIDOS  PUT /orders/{id} (cambia las lineas)', 'PUT', '/orders/%d' % pid,
            {'lineas': [{'libro_id': libro['id'], 'cantidad': 2}]}, token=token, esperado=200)
     e, ped, _ = llamar('PEDIDOS  GET /orders/{id} (lineas e historial)', 'GET', '/orders/%d' % pid, token=token, esperado=200)
-    e, pago, _ = llamar('PAGOS    POST /payments (pedido pasa a pagado)', 'POST', '/payments',
+    ep, pago, _ = llamar('PAGOS    POST /payments (pedido pasa a pagado)', 'POST', '/payments',
                         {'pedido_id': pid, 'monto': ped['total'], 'metodo': 'tarjeta', 'referencia': 'EVID-REDIS'},
                         token=token, esperado=201)
     llamar('PAGOS    GET /payments', 'GET', '/payments', token=token, esperado=200)
     llamar('PEDIDOS  PATCH /orders/{id}/status = cancelado (devuelve stock)', 'PATCH', '/orders/%d/status' % pid,
            {'estado': 'cancelado'}, token=token, esperado=200)
-    if e == 200 and isinstance(pago, dict):
+    if ep == 201 and isinstance(pago, dict):
         llamar('PAGOS    PATCH /payments/{id}/status = reembolsado', 'PATCH',
                '/payments/%d/status' % pago['id'], {'estado': 'reembolsado'}, token=token, esperado=200)
     llamar('Cierre de sesion', 'POST', '/logout?format=json', token=token, esperado=200)
