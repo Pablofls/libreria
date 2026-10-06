@@ -1,0 +1,102 @@
+SECCION jwt — login, claims, renovacion y control de acceso
+
+━━ 1. Login del lector: devuelve JWT (20 min) y refresh token
+  $ curl -s -X POST --cacert $CA_CERT 'https://34.51.108.167/login?format=json' -H 'Content-Type: application/json' -d '{"email": "cesar.villalobos@libreria.udem.mx", "password": "******** (13 caracteres)"}'
+  ← 200 OK  (174 ms)  ✓ esperado
+    {
+      "autenticada": true,
+      "usuario": {
+        "id": 30,
+        "nombre": "Cesar",
+        "apellido_paterno": "Villalobos",
+        "apellido_materno": null,
+        "nombre_completo": "Cesar Villalobos",
+        "email": "cesar.villalobos@libreria.udem.mx",
+        "rol": "lector"
+      },
+      "token": "eyJhbGciOi…(340 caracteres)",
+      "refresh_token": "******** (43 caracteres)",
+      "expira_en": 1200,
+      "mensaje": "Sesion iniciada."
+    }
+  claims del JWT: user_id=30  role_id=2  rol=lector  iss=login-libreria  jti=665d30c8…  vigencia=1200 s
+
+━━ 2. Renovar ANTES de caducar: el refresh token da JWT y refresh nuevos
+  $ curl -s -X POST --cacert $CA_CERT 'https://34.51.108.167/token/refresh?format=json' -H 'Content-Type: application/json' -d '{"refresh_token": "******** (43 caracteres)"}'
+  ← 200 OK  (73 ms)  ✓ esperado
+    {
+      "autenticada": true,
+      "usuario": {
+        "id": 30,
+        "nombre": "Cesar",
+        "apellido_paterno": "Villalobos",
+        "apellido_materno": null,
+        "nombre_completo": "Cesar Villalobos",
+        "email": "cesar.villalobos@libreria.udem.mx",
+        "rol": "lector"
+      },
+      "token": "eyJhbGciOi…(340 caracteres)",
+      "refresh_token": "******** (43 caracteres)",
+      "expira_en": 1200,
+      "mensaje": "Token renovado."
+    }
+
+━━ 3. El refresh token ya usado se rechaza (un solo uso)
+  $ curl -s -X POST --cacert $CA_CERT 'https://34.51.108.167/token/refresh?format=json' -H 'Content-Type: application/json' -d '{"refresh_token": "******** (43 caracteres)"}'
+  ← 401 UNAUTHORIZED  (76 ms)  ✓ esperado
+    {
+      "codigo": 401,
+      "mensaje": "Refresh token invalido, usado o vencido.",
+      "detalles": []
+    }
+
+━━ 4. Sin token: 401
+  $ curl -s -X GET --cacert $CA_CERT 'https://34.51.108.167/users'
+  ← 401 UNAUTHORIZED  (81 ms)  ✓ esperado
+    {
+      "codigo": 401,
+      "mensaje": "Esta operacion requiere un token valido.",
+      "detalles": [
+        "Authorization: Bearer <JWT>"
+      ]
+    }
+
+━━ 5. Token de lector en una ruta de admin: 403
+  $ curl -s -X GET --cacert $CA_CERT 'https://34.51.108.167/users' -H 'Authorization: Bearer eyJhbGciOi…'
+  ← 403 FORBIDDEN  (75 ms)  ✓ esperado
+    {
+      "codigo": 403,
+      "mensaje": "Tu rol no permite esta operacion.",
+      "detalles": []
+    }
+
+━━ 6. Token de lector en lo suyo: 200
+  $ curl -s -X GET --cacert $CA_CERT 'https://34.51.108.167/orders' -H 'Authorization: Bearer eyJhbGciOi…'
+  ← 200 OK  (81 ms)  ✓ esperado
+    [
+      {
+        "id": 8,
+        "usuario_id": 30,
+        "estado": "cancelado",
+        "creado_en": "2026-10-05T03:56:45.691820+00:00",
+        "total": 1490.0,
+        "pagado": 0.0
+      },
+      {
+        "id": 6,
+        "usuario_id": 30,
+        "estado": "cancelado",
+        "creado_en": "2026-10-05T03:30:02.774920+00:00",
+        "total": 1490.0,
+        "pagado": 0.0
+      },
+      "… (2 elementos mas)"
+    …
+
+━━ 7. Cierre de sesion (limpia lo creado)
+  $ curl -s -X POST --cacert $CA_CERT 'https://34.51.108.167/logout?format=json' -H 'Authorization: Bearer eyJhbGciOi…' -H 'Content-Type: application/json' -d '{"refresh_token": "******** (43 caracteres)"}'
+  ← 200 OK  (76 ms)  ✓ esperado
+    {
+      "ok": true,
+      "mensaje": "Sesion cerrada."
+    }

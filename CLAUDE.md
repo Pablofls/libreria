@@ -333,7 +333,14 @@ reiniciar los seis servicios. Rotar el secreto JWT cierra todas las sesiones.
    timeout; pegar en zsh un `;` lo convierte en `\;`.
 6. **Tienda (2026-10-05):** `cliente_escritorio.py` rediseñada como librería online con
    portadas por `https://<ip>/uploads/…`; verificada a mano por el usuario con el admin.
-7. **Pendiente opcional:** cerrar 5003–5006 hacia fuera (ligar a `127.0.0.1` y quitar
+7. **Evidencias (2026-10-05):** capturas numeradas en `evidencias/redis en microservicios/`
+   (01 servicios activos · 02 Redis protegido · 03 JWT · 04 revocación · 05 caché ·
+   06 CRUD · 07 pruebas · 08 Redis parado · 09–18 la app) y las peticiones/respuestas
+   con secretos tapados en `docs/evidencias/peticiones_<seccion>.txt`, generadas por
+   `tests/evidencias_api.py {jwt|redis|cache|crud|caida}`. La carpeta `descartadas/`
+   guarda una corrida superada. Faltan a propósito 01, 13 (carrito y pago) y las de
+   la app con Redis caído.
+8. **Pendiente opcional:** cerrar 5003–5006 hacia fuera (ligar a `127.0.0.1` y quitar
    reglas), probar la app con el usuario lector, borrar el libro de prueba
    `9999999999998 / Evidencia curl`, y rediseño visual de la app (portadas).
 

@@ -1,0 +1,119 @@
+SECCION caida — Redis PARADO (sudo systemctl stop redis)
+
+━━ 1. Login con Redis caido: 503 (no se abre sesion sin Redis)
+  $ curl -s -X POST --cacert $CA_CERT 'https://34.51.108.167/login?format=json' -H 'Content-Type: application/json' -d '{"email": "cesar.villalobos@libreria.udem.mx", "password": "******** (13 caracteres)"}'
+  ← 503 SERVICE UNAVAILABLE  (98 ms)  ✓ esperado
+    Retry-After: 5
+    {
+      "codigo": 503,
+      "mensaje": "No se puede verificar la sesion en este momento. Intenta de nuevo.",
+      "detalles": []
+    }
+
+━━ 2. Ruta protegida sin token: sigue siendo 401
+  $ curl -s -X GET --cacert $CA_CERT 'https://34.51.108.167/orders'
+  ← 401 UNAUTHORIZED  (72 ms)  ✓ esperado
+    {
+      "codigo": 401,
+      "mensaje": "Esta operacion requiere un token valido.",
+      "detalles": [
+        "Authorization: Bearer <JWT>"
+      ]
+    }
+
+━━ 3. GET /books: sigue sirviendo desde PostgreSQL (la cache falla abierto)
+  $ curl -s -X GET --cacert $CA_CERT 'https://34.51.108.167/books?limite=2&format=json'
+  ← 200 OK  (73 ms)  ✓ esperado
+    X-Cache: MISS
+    {
+      "count": 2,
+      "books": [
+        {
+          "isbn": "978-1-942788-33-1",
+          "title": "Accelerate",
+          "authors": [
+            {
+              "name": "Nicole Forsgren",
+              "order": 1,
+              "nationality": "Estadounidense"
+            },
+            {
+              "name": "Gene Kim",
+              "order": 2,
+              "nationality": "Estadounidense"
+            }
+          ],
+    …
+
+━━ 4. Semaforo login: responde y marca Redis caido (amarillo)
+  $ curl -s -X GET --cacert $CA_CERT 'https://34.51.108.167/health/login?format=json'
+  ← 200 OK  (72 ms)  ✓ esperado
+    {
+      "estado": "ok",
+      "servicio": "login-libreria",
+      "version": "1.0.0",
+      "componentes": {
+        "base_de_datos": {
+          "estado": "ok",
+          "detalle": "Conexion establecida."
+        },
+        "correo": {
+          "estado": "ok",
+          "detalle": "Postfix responde."
+        },
+        "redis": {
+          "estado": "degradado",
+          "detalle": "Redis no responde."
+        }
+      }
+    …
+
+━━ 5. Semaforo catalogo: responde y marca Redis caido (amarillo)
+  $ curl -s -X GET --cacert $CA_CERT 'https://34.51.108.167/health/catalogo?format=json'
+  ← 200 OK  (72 ms)  ✓ esperado
+    {
+      "status": "ok",
+      "database": "conectada",
+      "books": 34,
+      "redis": "caido"
+    }
+
+━━ 6. Semaforo users: responde y marca Redis caido (amarillo)
+  $ curl -s -X GET --cacert $CA_CERT 'https://34.51.108.167/health/users?format=json'
+  ← 200 OK  (75 ms)  ✓ esperado
+    {
+      "servicio": "users",
+      "version": "1.0.0",
+      "estado": "ok",
+      "redis": "caido"
+    }
+
+━━ 7. Semaforo authors: responde y marca Redis caido (amarillo)
+  $ curl -s -X GET --cacert $CA_CERT 'https://34.51.108.167/health/authors?format=json'
+  ← 200 OK  (74 ms)  ✓ esperado
+    {
+      "servicio": "authors",
+      "version": "1.0.0",
+      "estado": "ok",
+      "redis": "caido"
+    }
+
+━━ 8. Semaforo pedidos: responde y marca Redis caido (amarillo)
+  $ curl -s -X GET --cacert $CA_CERT 'https://34.51.108.167/health/pedidos?format=json'
+  ← 200 OK  (83 ms)  ✓ esperado
+    {
+      "servicio": "pedidos",
+      "version": "1.0.0",
+      "estado": "ok",
+      "redis": "caido"
+    }
+
+━━ 9. Semaforo pagos: responde y marca Redis caido (amarillo)
+  $ curl -s -X GET --cacert $CA_CERT 'https://34.51.108.167/health/pagos?format=json'
+  ← 200 OK  (74 ms)  ✓ esperado
+    {
+      "servicio": "pagos",
+      "version": "1.0.0",
+      "estado": "ok",
+      "redis": "caido"
+    }

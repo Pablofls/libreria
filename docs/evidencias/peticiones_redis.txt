@@ -1,0 +1,103 @@
+SECCION redis — el logout revoca el JWT en todos los servicios
+
+━━ 1. Login del admin
+  $ curl -s -X POST --cacert $CA_CERT 'https://34.51.108.167/login?format=json' -H 'Content-Type: application/json' -d '{"email": "admin@libreria.com", "password": "******** (13 caracteres)"}'
+  ← 200 OK  (150 ms)  ✓ esperado
+    {
+      "autenticada": true,
+      "usuario": {
+        "id": 1,
+        "nombre": "Administrador",
+        "apellido_paterno": null,
+        "apellido_materno": null,
+        "nombre_completo": "Administrador",
+        "email": "admin@libreria.com",
+        "rol": "admin"
+      },
+      "token": "eyJhbGciOi…(316 caracteres)",
+      "refresh_token": "******** (43 caracteres)",
+      "expira_en": 1200,
+      "mensaje": "Sesion iniciada."
+    }
+
+━━ 2. Antes del logout: el JWT entra a Users
+  $ curl -s -X GET --cacert $CA_CERT 'https://34.51.108.167/users' -H 'Authorization: Bearer eyJhbGciOi…'
+  ← 200 OK  (83 ms)  ✓ esperado
+    [
+      {
+        "id": 1,
+        "email": "admin@libreria.com",
+        "rol": "admin",
+        "activo": true,
+        "creado_en": "2026-09-01T15:26:44.849401+00:00",
+        "nombre": "Administrador",
+        "apellido_paterno": null,
+        "apellido_materno": null
+      },
+      {
+        "id": 28,
+        "email": "adrian.lozano@libreria.udem.mx",
+        "rol": "lector",
+        "activo": true,
+        "creado_en": "2026-09-01T15:26:44.849401+00:00",
+        "nombre": "Adrian",
+    …
+
+━━ 3. POST /logout: revoca el JWT (jwt:revoked:<jti>) y borra sesion y refresh
+  $ curl -s -X POST --cacert $CA_CERT 'https://34.51.108.167/logout?format=json' -H 'Authorization: Bearer eyJhbGciOi…' -H 'Content-Type: application/json' -d '{"refresh_token": "******** (43 caracteres)"}'
+  ← 200 OK  (74 ms)  ✓ esperado
+    {
+      "ok": true,
+      "mensaje": "Sesion cerrada."
+    }
+
+━━ 4. El MISMO JWT ya no entra a Users
+  $ curl -s -X GET --cacert $CA_CERT 'https://34.51.108.167/users' -H 'Authorization: Bearer eyJhbGciOi…'
+  ← 401 UNAUTHORIZED  (72 ms)  ✓ esperado
+    {
+      "codigo": 401,
+      "mensaje": "Esta operacion requiere un token valido.",
+      "detalles": [
+        "Authorization: Bearer <JWT>"
+      ]
+    }
+
+━━ 5. Ni a Pedidos
+  $ curl -s -X GET --cacert $CA_CERT 'https://34.51.108.167/orders' -H 'Authorization: Bearer eyJhbGciOi…'
+  ← 401 UNAUTHORIZED  (84 ms)  ✓ esperado
+    {
+      "codigo": 401,
+      "mensaje": "Esta operacion requiere un token valido.",
+      "detalles": [
+        "Authorization: Bearer <JWT>"
+      ]
+    }
+
+━━ 6. Ni a las escrituras del catalogo
+  $ curl -s -X DELETE --cacert $CA_CERT 'https://34.51.108.167/books/delete/0000000000000' -H 'Authorization: Bearer eyJhbGciOi…'
+  ← 401 UNAUTHORIZED  (77 ms)  ✓ esperado
+    {
+      "code": 401,
+      "message": "Esta operacion requiere autenticacion.",
+      "details": [
+        "Manda un JWT valido de login: Authorization: Bearer <token>.",
+        "O, si el servicio la tiene configurada, la clave X-API-Key."
+      ]
+    }
+
+━━ 7. Ni a las metricas
+  $ curl -s -X GET --cacert $CA_CERT 'https://34.51.108.167/metrics/catalogo' -H 'Authorization: Bearer eyJhbGciOi…'
+  ← 401 UNAUTHORIZED  (77 ms)  ✓ esperado
+    {
+      "code": 401,
+      "message": "Esta operacion requiere autenticacion."
+    }
+
+━━ 8. El refresh token de esa sesion tampoco sirve
+  $ curl -s -X POST --cacert $CA_CERT 'https://34.51.108.167/token/refresh?format=json' -H 'Content-Type: application/json' -d '{"refresh_token": "******** (43 caracteres)"}'
+  ← 401 UNAUTHORIZED  (76 ms)  ✓ esperado
+    {
+      "codigo": 401,
+      "mensaje": "Refresh token invalido, usado o vencido.",
+      "detalles": []
+    }

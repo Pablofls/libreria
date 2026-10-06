@@ -1,0 +1,220 @@
+SECCION cache — GET /books cacheado en Redis (TTL 60 s) y su invalidacion
+
+━━ 1. Login del admin
+  $ curl -s -X POST --cacert $CA_CERT 'https://34.51.108.167/login?format=json' -H 'Content-Type: application/json' -d '{"email": "admin@libreria.com", "password": "******** (13 caracteres)"}'
+  ← 200 OK  (153 ms)  ✓ esperado
+    {
+      "autenticada": true,
+      "usuario": {
+        "id": 1,
+        "nombre": "Administrador",
+        "apellido_paterno": null,
+        "apellido_materno": null,
+        "nombre_completo": "Administrador",
+        "email": "admin@libreria.com",
+        "rol": "admin"
+      },
+      "token": "eyJhbGciOi…(316 caracteres)",
+      "refresh_token": "******** (43 caracteres)",
+      "expira_en": 1200,
+      "mensaje": "Sesion iniciada."
+    }
+
+━━ 2. Escritura previa: deja la cache vacia (invalida books:*)
+  $ curl -s -X POST --cacert $CA_CERT 'https://34.51.108.167/authors' -H 'Authorization: Bearer eyJhbGciOi…' -H 'Content-Type: application/json' -d '{"nombre": "Autor limpieza cache"}'
+  ← 201 CREATED  (78 ms)  ✓ esperado
+    {
+      "id": 41,
+      "nombre": "Autor limpieza cache",
+      "nacionalidad": null,
+      "biografia": null
+    }
+
+━━ 3. Se borra el autor de la escritura previa
+  $ curl -s -X DELETE --cacert $CA_CERT 'https://34.51.108.167/authors/41' -H 'Authorization: Bearer eyJhbGciOi…'
+  ← 204 NO CONTENT  (92 ms)  ✓ esperado
+
+━━ 4. GET /books (primera lectura: MISS, va a PostgreSQL)
+  $ curl -s -X GET --cacert $CA_CERT 'https://34.51.108.167/books?limite=3&format=json'
+  ← 200 OK  (85 ms)  ✓ esperado
+    X-Cache: MISS
+    {
+      "count": 3,
+      "books": [
+        {
+          "isbn": "978-1-942788-33-1",
+          "title": "Accelerate",
+          "authors": [
+            {
+              "name": "Nicole Forsgren",
+              "order": 1,
+              "nationality": "Estadounidense"
+            },
+            {
+              "name": "Gene Kim",
+              "order": 2,
+              "nationality": "Estadounidense"
+            }
+          ],
+    …
+
+━━ 5. GET /books (2a lectura: HIT, sale de Redis)
+  $ curl -s -X GET --cacert $CA_CERT 'https://34.51.108.167/books?limite=3&format=json'
+  ← 200 OK  (79 ms)  ✓ esperado
+    X-Cache: HIT
+    {
+      "count": 3,
+      "books": [
+        {
+          "isbn": "978-1-942788-33-1",
+          "title": "Accelerate",
+          "authors": [
+            {
+              "name": "Nicole Forsgren",
+              "order": 1,
+              "nationality": "Estadounidense"
+            },
+            {
+              "name": "Gene Kim",
+              "order": 2,
+              "nationality": "Estadounidense"
+            }
+          ],
+    …
+
+━━ 6. GET /books/<isbn> (se cachea como books:<isbn>)
+  $ curl -s -X GET --cacert $CA_CERT 'https://34.51.108.167/books/978-0-13-235088-4?format=json'
+  ← 200 OK  (76 ms)  ✓ esperado
+    X-Cache: MISS
+    {
+      "count": 1,
+      "books": [
+        {
+          "isbn": "978-0-13-235088-4",
+          "title": "Clean Code: A Handbook of Agile Software Craftsmanship",
+          "authors": [
+            {
+              "name": "Robert C. Martin",
+              "order": 1,
+              "nationality": "Estadounidense"
+            }
+          ],
+          "year": 2008,
+          "genres": [
+            "Ingenieria de software",
+            "Programacion"
+          ],
+    …
+
+━━ 7. GET /books/<isbn> otra vez: HIT
+  $ curl -s -X GET --cacert $CA_CERT 'https://34.51.108.167/books/978-0-13-235088-4?format=json'
+  ← 200 OK  (81 ms)  ✓ esperado
+    X-Cache: HIT
+    {
+      "count": 1,
+      "books": [
+        {
+          "isbn": "978-0-13-235088-4",
+          "title": "Clean Code: A Handbook of Agile Software Craftsmanship",
+          "authors": [
+            {
+              "name": "Robert C. Martin",
+              "order": 1,
+              "nationality": "Estadounidense"
+            }
+          ],
+          "year": 2008,
+          "genres": [
+            "Ingenieria de software",
+            "Programacion"
+          ],
+    …
+
+━━ 8. Una escritura de Authors invalida books:*
+  $ curl -s -X POST --cacert $CA_CERT 'https://34.51.108.167/authors' -H 'Authorization: Bearer eyJhbGciOi…' -H 'Content-Type: application/json' -d '{"nombre": "Autor evidencia cache"}'
+  ← 201 CREATED  (84 ms)  ✓ esperado
+    {
+      "id": 42,
+      "nombre": "Autor evidencia cache",
+      "nacionalidad": null,
+      "biografia": null
+    }
+
+━━ 9. GET /books justo despues: MISS (la cache se borro)
+  $ curl -s -X GET --cacert $CA_CERT 'https://34.51.108.167/books?limite=3&format=json'
+  ← 200 OK  (82 ms)  ✓ esperado
+    X-Cache: MISS
+    {
+      "count": 3,
+      "books": [
+        {
+          "isbn": "978-1-942788-33-1",
+          "title": "Accelerate",
+          "authors": [
+            {
+              "name": "Nicole Forsgren",
+              "order": 1,
+              "nationality": "Estadounidense"
+            },
+            {
+              "name": "Gene Kim",
+              "order": 2,
+              "nationality": "Estadounidense"
+            }
+          ],
+    …
+
+━━ 10. Limpieza: se borra el autor de prueba
+  $ curl -s -X DELETE --cacert $CA_CERT 'https://34.51.108.167/authors/42' -H 'Authorization: Bearer eyJhbGciOi…'
+  ← 204 NO CONTENT  (82 ms)  ✓ esperado
+
+━━ 11. Metricas del catalogo (solo admin): aciertos y fallos de cache
+  $ curl -s -X GET --cacert $CA_CERT 'https://34.51.108.167/metrics/catalogo' -H 'Authorization: Bearer eyJhbGciOi…'
+  ← 200 OK  (72 ms)  ✓ esperado
+    {
+      "servicio": "catalogo",
+      "redis": "ok",
+      "errores_redis_en_este_proceso": 0,
+      "contadores": {
+        "cache_fallos": 18,
+        "tokens_revocados_rechazados": 6,
+        "cache_aciertos": 17,
+        "revocaciones_consultadas": 9
+      }
+    }
+
+━━ 12. Metricas de authors: invalidaciones de books:* que provoco al escribir
+  $ curl -s -X GET --cacert $CA_CERT 'https://34.51.108.167/metrics/authors' -H 'Authorization: Bearer eyJhbGciOi…'
+  ← 200 OK  (76 ms)  ✓ esperado
+    {
+      "servicio": "authors",
+      "redis": "ok",
+      "errores_redis_en_este_proceso": 0,
+      "contadores": {
+        "revocaciones_consultadas": 16,
+        "invalidaciones_catalogo": 15
+      }
+    }
+
+━━ 13. Metricas del login: inicios de sesion, refresh, logout
+  $ curl -s -X GET --cacert $CA_CERT 'https://34.51.108.167/metrics/login' -H 'Authorization: Bearer eyJhbGciOi…'
+  ← 200 OK  (82 ms)  ✓ esperado
+    {
+      "servicio": "login",
+      "redis": "ok",
+      "errores_redis_en_este_proceso": 0,
+      "contadores": {
+        "refresh_correctos": 4,
+        "refresh_rechazados": 8,
+        "logout": 8,
+        "login_correctos": 14
+      }
+    }
+
+━━ 14. Cierre de sesion
+  $ curl -s -X POST --cacert $CA_CERT 'https://34.51.108.167/logout?format=json' -H 'Authorization: Bearer eyJhbGciOi…'
+  ← 200 OK  (81 ms)  ✓ esperado
+    {
+      "ok": true,
+      "mensaje": "Sesion cerrada."
+    }

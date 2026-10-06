@@ -1,0 +1,301 @@
+SECCION crud — Authors, Users, Pedidos y Pagos
+
+━━ 1. Login del admin
+  $ curl -s -X POST --cacert $CA_CERT 'https://34.51.108.167/login?format=json' -H 'Content-Type: application/json' -d '{"email": "admin@libreria.com", "password": "******** (13 caracteres)"}'
+  ← 200 OK  (169 ms)  ✓ esperado
+    {
+      "autenticada": true,
+      "usuario": {
+        "id": 1,
+        "nombre": "Administrador",
+        "apellido_paterno": null,
+        "apellido_materno": null,
+        "nombre_completo": "Administrador",
+        "email": "admin@libreria.com",
+        "rol": "admin"
+      },
+      "token": "eyJhbGciOi…(316 caracteres)",
+      "refresh_token": "******** (43 caracteres)",
+      "expira_en": 1200,
+      "mensaje": "Sesion iniciada."
+    }
+
+━━ 2. AUTHORS  POST /authors
+  $ curl -s -X POST --cacert $CA_CERT 'https://34.51.108.167/authors' -H 'Authorization: Bearer eyJhbGciOi…' -H 'Content-Type: application/json' -d '{"nombre": "Autor evidencia", "nacionalidad": "Pruebas"}'
+  ← 201 CREATED  (82 ms)  ✓ esperado
+    {
+      "id": 45,
+      "nombre": "Autor evidencia",
+      "nacionalidad": "Pruebas",
+      "biografia": null
+    }
+
+━━ 3. AUTHORS  PUT /authors/{id}
+  $ curl -s -X PUT --cacert $CA_CERT 'https://34.51.108.167/authors/45' -H 'Authorization: Bearer eyJhbGciOi…' -H 'Content-Type: application/json' -d '{"nombre": "Autor evidencia", "nacionalidad": "Mexicana", "biografia": "Autor de prueba"}'
+  ← 200 OK  (84 ms)  ✓ esperado
+    {
+      "id": 45,
+      "nombre": "Autor evidencia",
+      "nacionalidad": "Mexicana",
+      "biografia": "Autor de prueba"
+    }
+
+━━ 4. AUTHORS  PATCH /authors/{id}
+  $ curl -s -X PATCH --cacert $CA_CERT 'https://34.51.108.167/authors/45' -H 'Authorization: Bearer eyJhbGciOi…' -H 'Content-Type: application/json' -d '{"biografia": "Editada"}'
+  ← 200 OK  (82 ms)  ✓ esperado
+    {
+      "id": 45,
+      "nombre": "Autor evidencia",
+      "nacionalidad": "Mexicana",
+      "biografia": "Editada"
+    }
+
+━━ 5. AUTHORS  GET /authors/{id} (publico)
+  $ curl -s -X GET --cacert $CA_CERT 'https://34.51.108.167/authors/45'
+  ← 200 OK  (78 ms)  ✓ esperado
+    {
+      "id": 45,
+      "nombre": "Autor evidencia",
+      "nacionalidad": "Mexicana",
+      "biografia": "Editada"
+    }
+
+━━ 6. AUTHORS  DELETE /authors/{id}
+  $ curl -s -X DELETE --cacert $CA_CERT 'https://34.51.108.167/authors/45' -H 'Authorization: Bearer eyJhbGciOi…'
+  ← 204 NO CONTENT  (92 ms)  ✓ esperado
+
+━━ 7. USERS    GET /users (admin)
+  $ curl -s -X GET --cacert $CA_CERT 'https://34.51.108.167/users' -H 'Authorization: Bearer eyJhbGciOi…'
+  ← 200 OK  (82 ms)  ✓ esperado
+    [
+      {
+        "id": 1,
+        "email": "admin@libreria.com",
+        "rol": "admin",
+        "activo": true,
+        "creado_en": "2026-09-01T15:26:44.849401+00:00",
+        "nombre": "Administrador",
+        "apellido_paterno": null,
+        "apellido_materno": null
+      },
+      {
+        "id": 28,
+        "email": "adrian.lozano@libreria.udem.mx",
+        "rol": "lector",
+        "activo": true,
+        "creado_en": "2026-09-01T15:26:44.849401+00:00",
+        "nombre": "Adrian",
+    …
+
+━━ 8. USERS    PUT /users/{id}
+  $ curl -s -X PUT --cacert $CA_CERT 'https://34.51.108.167/users/45' -H 'Authorization: Bearer eyJhbGciOi…' -H 'Content-Type: application/json' -d '{"nombre": "Prueba", "apellido_paterno": "Evidencia", "apellido_materno": "Redis", "email": "prueba.jwt.servicios@example.com"}'
+  ← 200 OK  (78 ms)  ✓ esperado
+    {
+      "id": 45,
+      "email": "prueba.jwt.servicios@example.com",
+      "rol": "lector",
+      "activo": false,
+      "creado_en": "2026-10-05T03:21:24.389757+00:00",
+      "nombre": "Prueba",
+      "apellido_paterno": "Evidencia",
+      "apellido_materno": "Redis"
+    }
+
+━━ 9. USERS    PATCH /users/{id}
+  $ curl -s -X PATCH --cacert $CA_CERT 'https://34.51.108.167/users/45' -H 'Authorization: Bearer eyJhbGciOi…' -H 'Content-Type: application/json' -d '{"nombre": "Prueba editada"}'
+  ← 200 OK  (84 ms)  ✓ esperado
+    {
+      "id": 45,
+      "email": "prueba.jwt.servicios@example.com",
+      "rol": "lector",
+      "activo": false,
+      "creado_en": "2026-10-05T03:21:24.389757+00:00",
+      "nombre": "Prueba editada",
+      "apellido_paterno": "Evidencia",
+      "apellido_materno": "Redis"
+    }
+
+━━ 10. USERS    DELETE /users/{id} (baja logica: activo = false)
+  $ curl -s -X DELETE --cacert $CA_CERT 'https://34.51.108.167/users/45' -H 'Authorization: Bearer eyJhbGciOi…'
+  ← 200 OK  (79 ms)  ✓ esperado
+    {
+      "id": 45,
+      "email": "prueba.jwt.servicios@example.com",
+      "rol": "lector",
+      "activo": false,
+      "creado_en": "2026-10-05T03:21:24.389757+00:00",
+      "nombre": "Prueba editada",
+      "apellido_paterno": "Evidencia",
+      "apellido_materno": "Redis"
+    }
+
+━━ 11. PEDIDOS  GET /orders/books (ids, precio y stock)
+  $ curl -s -X GET --cacert $CA_CERT 'https://34.51.108.167/orders/books' -H 'Authorization: Bearer eyJhbGciOi…'
+  ← 200 OK  (80 ms)  ✓ esperado
+    [
+      {
+        "id": 18,
+        "isbn": "978-1-942788-33-1",
+        "titulo": "Accelerate",
+        "precio": 780.0,
+        "stock": 12
+      },
+      {
+        "id": 9,
+        "isbn": "978-0-471-11709-4",
+        "titulo": "Applied Cryptography",
+        "precio": 1310.0,
+        "stock": 4
+      },
+      "… (32 elementos mas)"
+    ]
+
+━━ 12. PEDIDOS  POST /orders (descuenta stock)
+  $ curl -s -X POST --cacert $CA_CERT 'https://34.51.108.167/orders' -H 'Authorization: Bearer eyJhbGciOi…' -H 'Content-Type: application/json' -d '{"lineas": [{"libro_id": 18, "cantidad": 1}]}'
+  ← 201 CREATED  (80 ms)  ✓ esperado
+    {
+      "id": 11,
+      "usuario_id": 1,
+      "estado": "pendiente",
+      "creado_en": "2026-10-06T00:58:27.162987+00:00",
+      "total": 780.0,
+      "pagado": 0.0,
+      "lineas": [
+        {
+          "libro_id": 18,
+          "titulo": "Accelerate",
+          "cantidad": 1,
+          "precio_unitario": 780.0,
+          "subtotal": 780.0
+        }
+      ],
+      "historial": [
+        {
+    …
+
+━━ 13. PEDIDOS  PUT /orders/{id} (cambia las lineas)
+  $ curl -s -X PUT --cacert $CA_CERT 'https://34.51.108.167/orders/11' -H 'Authorization: Bearer eyJhbGciOi…' -H 'Content-Type: application/json' -d '{"lineas": [{"libro_id": 18, "cantidad": 2}]}'
+  ← 200 OK  (84 ms)  ✓ esperado
+    {
+      "id": 11,
+      "usuario_id": 1,
+      "estado": "pendiente",
+      "creado_en": "2026-10-06T00:58:27.162987+00:00",
+      "total": 1560.0,
+      "pagado": 0.0,
+      "lineas": [
+        {
+          "libro_id": 18,
+          "titulo": "Accelerate",
+          "cantidad": 2,
+          "precio_unitario": 780.0,
+          "subtotal": 1560.0
+        }
+      ],
+      "historial": [
+        {
+    …
+
+━━ 14. PEDIDOS  GET /orders/{id} (lineas e historial)
+  $ curl -s -X GET --cacert $CA_CERT 'https://34.51.108.167/orders/11' -H 'Authorization: Bearer eyJhbGciOi…'
+  ← 200 OK  (74 ms)  ✓ esperado
+    {
+      "id": 11,
+      "usuario_id": 1,
+      "estado": "pendiente",
+      "creado_en": "2026-10-06T00:58:27.162987+00:00",
+      "total": 1560.0,
+      "pagado": 0.0,
+      "lineas": [
+        {
+          "libro_id": 18,
+          "titulo": "Accelerate",
+          "cantidad": 2,
+          "precio_unitario": 780.0,
+          "subtotal": 1560.0
+        }
+      ],
+      "historial": [
+        {
+    …
+
+━━ 15. PAGOS    POST /payments (pedido pasa a pagado)
+  $ curl -s -X POST --cacert $CA_CERT 'https://34.51.108.167/payments' -H 'Authorization: Bearer eyJhbGciOi…' -H 'Content-Type: application/json' -d '{"pedido_id": 11, "monto": 1560.0, "metodo": "tarjeta", "referencia": "EVID-REDIS-1791248307"}'
+  ← 201 CREATED  (83 ms)  ✓ esperado
+    {
+      "id": 7,
+      "pedido_id": 11,
+      "metodo": "tarjeta",
+      "estado": "aprobado",
+      "monto": 1560.0,
+      "referencia": "EVID-REDIS-1791248307",
+      "creado_en": "2026-10-06T00:58:27.404576+00:00",
+      "pedido_estado": "pagado"
+    }
+
+━━ 16. PAGOS    GET /payments
+  $ curl -s -X GET --cacert $CA_CERT 'https://34.51.108.167/payments' -H 'Authorization: Bearer eyJhbGciOi…'
+  ← 200 OK  (74 ms)  ✓ esperado
+    [
+      {
+        "id": 7,
+        "pedido_id": 11,
+        "metodo": "tarjeta",
+        "estado": "aprobado",
+        "monto": 1560.0,
+        "referencia": "EVID-REDIS-1791248307",
+        "creado_en": "2026-10-06T00:58:27.404576+00:00"
+      },
+      {
+        "id": 5,
+        "pedido_id": 9,
+        "metodo": "tarjeta",
+        "estado": "aprobado",
+        "monto": 1560.0,
+        "referencia": "EVID-REDIS",
+        "creado_en": "2026-10-06T00:53:58.231519+00:00"
+    …
+
+━━ 17. PEDIDOS  PATCH /orders/{id}/status = cancelado (devuelve stock)
+  $ curl -s -X PATCH --cacert $CA_CERT 'https://34.51.108.167/orders/11/status' -H 'Authorization: Bearer eyJhbGciOi…' -H 'Content-Type: application/json' -d '{"estado": "cancelado"}'
+  ← 200 OK  (87 ms)  ✓ esperado
+    {
+      "id": 11,
+      "usuario_id": 1,
+      "estado": "cancelado",
+      "creado_en": "2026-10-06T00:58:27.162987+00:00",
+      "total": 1560.0,
+      "pagado": 1560.0,
+      "lineas": [
+        {
+          "libro_id": 18,
+          "titulo": "Accelerate",
+          "cantidad": 2,
+          "precio_unitario": 780.0,
+          "subtotal": 1560.0
+        }
+      ],
+      "historial": [
+        {
+    …
+
+━━ 18. PAGOS    PATCH /payments/{id}/status = reembolsado
+  $ curl -s -X PATCH --cacert $CA_CERT 'https://34.51.108.167/payments/7/status' -H 'Authorization: Bearer eyJhbGciOi…' -H 'Content-Type: application/json' -d '{"estado": "reembolsado"}'
+  ← 200 OK  (81 ms)  ✓ esperado
+    {
+      "id": 7,
+      "pedido_id": 11,
+      "metodo": "tarjeta",
+      "estado": "reembolsado",
+      "monto": 1560.0,
+      "referencia": "EVID-REDIS-1791248307",
+      "creado_en": "2026-10-06T00:58:27.404576+00:00"
+    }
+
+━━ 19. Cierre de sesion
+  $ curl -s -X POST --cacert $CA_CERT 'https://34.51.108.167/logout?format=json' -H 'Authorization: Bearer eyJhbGciOi…'
+  ← 200 OK  (78 ms)  ✓ esperado
+    {
+      "ok": true,
+      "mensaje": "Sesion cerrada."
+    }
