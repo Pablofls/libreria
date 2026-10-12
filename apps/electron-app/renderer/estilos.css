@@ -370,3 +370,83 @@ body {
 
 .dialogo__acciones { display: flex; align-items: center; gap: 8px; margin-top: 20px; flex-wrap: wrap; }
 .dialogo__separador { flex: 1; }
+
+/* ---------- Pestanas de vista ---------- */
+
+.pestanas {
+    display: flex;
+    gap: 4px;
+    padding: 4px;
+    border-radius: var(--md-forma-completa);
+    background: var(--md-superficie-variante);
+}
+
+.pestana {
+    padding: 8px 18px;
+    border: 0;
+    border-radius: var(--md-forma-completa);
+    background: transparent;
+    color: var(--md-contenido-variante);
+    font: inherit;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.pestana[aria-current] {
+    background: var(--md-primario-contenedor);
+    color: var(--md-primario-contenedor-contenido);
+}
+
+.pestana:focus-visible { outline: 3px solid var(--md-primario); outline-offset: 2px; }
+
+/* ---------- Asistente (chat) ---------- */
+
+.chat { display: flex; flex-direction: column; gap: 12px; }
+
+.chat__mensajes {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-height: 320px;
+    max-height: calc(100vh - 320px);
+    overflow-y: auto;
+    padding: 16px;
+    border-radius: var(--md-forma-m);
+    background: var(--md-superficie-contenedor);
+}
+
+.chat__vacio { margin: auto; color: var(--md-contenido-variante); text-align: center; }
+
+.chat__mensaje {
+    max-width: 78%;
+    padding: 10px 14px;
+    border-radius: var(--md-forma-m);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.chat__mensaje--usuario {
+    align-self: flex-end;
+    background: var(--md-primario);
+    color: var(--md-primario-contenido);
+}
+
+.chat__mensaje--asistente {
+    align-self: flex-start;
+    background: var(--md-secundario-contenedor);
+    color: var(--md-secundario-contenedor-contenido);
+}
+
+.chat__entrada { display: flex; gap: 10px; align-items: flex-end; }
+.chat__entrada .campo__control { flex: 1; resize: vertical; font: inherit; }
+
+.chat__fuentes {
+    align-self: flex-start;
+    max-width: 78%;
+    padding: 8px 12px;
+    border-left: 3px solid var(--md-primario);
+    border-radius: var(--md-forma-xs);
+    background: var(--md-superficie);
+    color: var(--md-contenido-variante);
+    font-size: 13px;
+}

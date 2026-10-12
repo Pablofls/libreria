@@ -148,13 +148,41 @@ Estructura del XML que se consume (recortada):
 | Archivo | Responsabilidad |
 |---|---|
 | `main.js` | Proceso principal: ventana, descarga HTTP del XML, IPC |
-| `preload.js` | Puente aislado: expone una única función al renderer |
+| `preload.js` | Puente aislado: expone al renderer `servicioXml` y `asistenteApi` |
 | `renderer/index.html` | Estructura de la interfaz y popup de configuración |
 | `renderer/estilos.css` | Material Design 3 escrito a mano (claro y oscuro) |
 | `renderer/renderer.js` | Configuración, parseo del XML, tarjetas y paginación |
+| `renderer/asistente.js` | Vista «Asistente»: chat con Ollama sobre los libros del catálogo |
 
 La ventana corre con `contextIsolation`, `sandbox` y sin integración de Node, y
 la página declara una CSP que sólo permite cargar imágenes remotas.
+
+---
+
+## 6 bis. Asistente (Ollama)
+
+La pestaña **Asistente** es un chat con un LLM local que responde preguntas
+sobre los libros del catálogo (autores, precios, existencias, géneros).
+
+1. Ollama debe estar corriendo en Docker: `docker start ollama` (puerto 11434).
+2. El modelo se elige en **Configurar servicio** con una lista desplegable de los
+   modelos instalados en Ollama (`GET /api/tags`). Para tener más:
+   `docker exec -it ollama ollama pull <modelo>` y «Actualizar lista de modelos».
+3. **Cada pregunta consulta el catálogo** (`GET /books?format=json` en la IP y el
+   puerto del popup, por defecto 5002); nunca se responde con datos guardados. Si
+   el servicio no responde, el asistente lo dice y no llama al modelo. Si hay más
+   de 40 libros, envía los que mejor coinciden con la pregunta.
+4. **Sólo atiende temas de la librería.** Una pregunta ajena (código, deportes,
+   cultura general…) recibe un mensaje fijo sin llegar al modelo: la app comprueba
+   que la pregunta use vocabulario de librería o coincida con un libro, autor o
+   género del catálogo, y el prompt del modelo repite la regla como respaldo.
+
+Sólo conoce lo que expone el catálogo (ISBN, título, año, precio, existencias,
+formato, géneros y autores); no tiene sinopsis ni categoría. Las peticiones a
+Ollama salen del proceso principal y sólo hacia `127.0.0.1:11434`; la CSP del
+renderer sigue sin permitir `fetch`. `deepseek-coder` está orientado a código y
+responde regular en español: para mejores respuestas prueba un modelo general
+pequeño (p. ej. `qwen2.5:1.5b`).
 
 ---
 
@@ -165,4 +193,6 @@ la página declara una CSP que sólo permite cargar imágenes remotas.
 | «El servicio rechazó la conexión» | IP o puerto mal escritos, o el microservicio apagado. Compruébalo con `curl http://<IP>:5001/books`. |
 | «El servicio no respondió en 15 s» | El host no es alcanzable desde tu red (firewall de la VM). |
 | «Portada no disponible» en las tarjetas | La base de las portadas no apunta a donde se sirven las imágenes; ajústala en el popup. |
+| «Ollama no responde» en el Asistente | El contenedor está parado: `docker start ollama`. |
+| «El modelo … no está instalado» | `docker exec -it ollama ollama pull <modelo>` con el nombre del popup. |
 | `npm start` no encuentra Electron | Falta el paso 2: ejecuta `npm install` dentro de `apps/electron-app`. |

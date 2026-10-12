@@ -9,9 +9,10 @@ const POR_PAGINA = 6;
 
 const CONFIG_DEFECTO = Object.freeze({
     ip: '34.51.80.53',
-    puerto: '5001',
+    puerto: '5002',
     endpoint: '/books',
     imagenes: '',
+    modelo: 'qwen2.5:1.5b',
 });
 
 const dinero = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' });
@@ -37,6 +38,7 @@ const nodos = {
     campoPuerto: el('campo-puerto'),
     campoEndpoint: el('campo-endpoint'),
     campoImagenes: el('campo-imagenes'),
+    campoModelo: el('campo-modelo'),
 };
 
 let libros = [];
@@ -320,9 +322,28 @@ function abrirDialogo() {
     nodos.campoPuerto.value = config.puerto;
     nodos.campoEndpoint.value = config.endpoint;
     nodos.campoImagenes.value = config.imagenes;
+    nodos.campoModelo.replaceChildren(new Option(config.modelo, config.modelo));
     nodos.dialogoError.hidden = true;
     refrescarVistaPrevia();
     nodos.dialogo.showModal();
+    llenarModelos(config.modelo);
+}
+
+/* El modelo se elige entre los instalados en Ollama (GET /api/tags). Si el
+   guardado ya no esta instalado se conserva como opcion marcada, para no
+   cambiarlo en silencio. listarModelosOllama y nombreInstalado viven en
+   asistente.js. */
+async function llenarModelos(seleccionado) {
+    const ayuda = el('ayuda-modelo');
+    const { ok, modelos } = await listarModelosOllama();
+    const opciones = modelos.map((nombre) => new Option(nombre, nombre));
+    const instalado = nombreInstalado(seleccionado, modelos);
+    if (seleccionado && !instalado) opciones.unshift(new Option(`${seleccionado} (no instalado)`, seleccionado));
+    nodos.campoModelo.replaceChildren(...opciones);
+    nodos.campoModelo.value = instalado || seleccionado;
+    ayuda.textContent = !ok
+        ? 'Ollama no responde: inicia el contenedor con docker start ollama y pulsa Actualizar.'
+        : 'Para tener mas modelos: docker exec -it ollama ollama pull <modelo>';
 }
 
 function validar() {
@@ -335,6 +356,7 @@ function validar() {
     if (puerto && !/^\d{1,5}$/.test(puerto)) return 'El puerto debe ser un numero.';
     if (puerto && (Number(puerto) < 1 || Number(puerto) > 65535)) return 'El puerto debe estar entre 1 y 65535.';
     if (!endpoint) return 'Escribe el endpoint, por ejemplo /books.';
+    if (!nodos.campoModelo.value) return 'Elige un modelo de Ollama de la lista.';
     try {
         urlDeFormulario();
     } catch {
@@ -355,6 +377,7 @@ function guardarYRecargar() {
         puerto: nodos.campoPuerto.value.trim(),
         endpoint: nodos.campoEndpoint.value.trim(),
         imagenes: nodos.campoImagenes.value.trim(),
+        modelo: nodos.campoModelo.value,
     });
     if (!guardado) {
         nodos.dialogoError.textContent = 'No se pudo escribir en localStorage; la configuracion no quedara guardada.';
@@ -372,11 +395,13 @@ el('btn-error-config').addEventListener('click', abrirDialogo);
 el('btn-recargar').addEventListener('click', cargarCatalogo);
 el('btn-cancelar').addEventListener('click', () => nodos.dialogo.close());
 el('btn-guardar').addEventListener('click', guardarYRecargar);
+el('btn-actualizar-modelos').addEventListener('click', () => llenarModelos(nodos.campoModelo.value));
 el('btn-restablecer').addEventListener('click', () => {
     nodos.campoIp.value = CONFIG_DEFECTO.ip;
     nodos.campoPuerto.value = CONFIG_DEFECTO.puerto;
     nodos.campoEndpoint.value = CONFIG_DEFECTO.endpoint;
     nodos.campoImagenes.value = CONFIG_DEFECTO.imagenes;
+    llenarModelos(CONFIG_DEFECTO.modelo);
     nodos.dialogoError.hidden = true;
     refrescarVistaPrevia();
 });

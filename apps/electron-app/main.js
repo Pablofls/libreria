@@ -44,10 +44,10 @@ function crearVentana() {
 }
 
 /**
- * GET de un recurso XML. Resuelve siempre (no lanza): el renderer decide que
- * mensaje pintar a partir del objeto devuelto.
+ * GET de un recurso (XML por defecto). Resuelve siempre (no lanza): el
+ * renderer decide que mensaje pintar a partir del objeto devuelto.
  */
-function descargarXml(urlTexto) {
+function descargar(urlTexto, accept = 'application/xml, text/xml;q=0.9') {
     return new Promise((resolve) => {
         let url;
         try {
@@ -64,10 +64,10 @@ function descargarXml(urlTexto) {
             url,
             {
                 method: 'GET',
-                // El cliente es XML y nada mas: se pide XML por cabecera y el
-                // parametro ?format=xml lo refuerza en la URL.
+                // La vista del catalogo pide XML (y refuerza con ?format=xml);
+                // el asistente pide JSON con ?format=json.
                 headers: {
-                    Accept: 'application/xml, text/xml;q=0.9',
+                    Accept: accept,
                     'User-Agent': 'LibreriaElectron/1.0 (cliente XML)',
                 },
                 timeout: TIEMPO_LIMITE_MS,
@@ -113,7 +113,139 @@ function descargarXml(urlTexto) {
     });
 }
 
-ipcMain.handle('catalogo:xml', (_evento, url) => descargarXml(String(url || '')));
+/* ------------------------------------------------------------- Ollama */
+
+// Ollama corre en el contenedor Docker `ollama` y publica el 11434 en el
+// equipo. La direccion es fija: el renderer no elige a donde se conecta.
+const OLLAMA_HOST = '127.0.0.1';
+const OLLAMA_PUERTO = 11434;
+const OLLAMA_TIEMPO_LIMITE_MS = 120000; // la primera respuesta carga el modelo
+const ROLES_VALIDOS = new Set(['system', 'user', 'assistant']);
+
+let peticionOllama = null;
+
+function validarPeticionChat(carga) {
+    if (!carga || typeof carga !== 'object') return 'Peticion invalida.';
+    if (typeof carga.modelo !== 'string' || !/^[\w.\-:/]{1,100}$/.test(carga.modelo)) {
+        return 'El nombre del modelo no es valido.';
+    }
+    if (!Array.isArray(carga.mensajes) || carga.mensajes.length === 0 || carga.mensajes.length > 100) {
+        return 'No hay mensajes que enviar.';
+    }
+    const mal = carga.mensajes.some(
+        (m) => !m || !ROLES_VALIDOS.has(m.role) || typeof m.content !== 'string' || m.content.length > 60000,
+    );
+    return mal ? 'Los mensajes no tienen el formato esperado.' : null;
+}
+
+/**
+ * POST a /api/chat de Ollama con streaming (NDJSON). Cada fragmento viaja al
+ * renderer por 'ollama:fragmento'; la promesa resuelve al terminar. No lanza.
+ */
+function chatOllama(evento, carga) {
+    return new Promise((resolve) => {
+        const problema = validarPeticionChat(carga);
+        if (problema) return resolve({ ok: false, error: problema });
+        if (peticionOllama) peticionOllama.destroy();
+
+        const cuerpo = JSON.stringify({
+            model: carga.modelo,
+            messages: carga.mensajes.map(({ role, content }) => ({ role, content })),
+            stream: true,
+            options: { num_ctx: 4096, temperature: 0.2, repeat_penalty: 1.1, num_predict: 400 },
+        });
+        const id = carga.id;
+        let cancelada = false;
+        let terminado = false;
+        const terminar = (resultado) => {
+            if (terminado) return;
+            terminado = true;
+            peticionOllama = null;
+            resolve(resultado);
+        };
+
+        const peticion = http.request(
+            {
+                host: OLLAMA_HOST,
+                port: OLLAMA_PUERTO,
+                path: '/api/chat',
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(cuerpo) },
+                timeout: OLLAMA_TIEMPO_LIMITE_MS,
+            },
+            (respuesta) => {
+                respuesta.setEncoding('utf8');
+
+                if (respuesta.statusCode !== 200) {
+                    let texto = '';
+                    respuesta.on('data', (t) => { texto += t; });
+                    respuesta.on('end', () => {
+                        let detalle = '';
+                        try { detalle = JSON.parse(texto).error || ''; } catch { /* cuerpo no JSON */ }
+                        if (/not found/i.test(detalle)) {
+                            return terminar({
+                                ok: false,
+                                error: `El modelo "${carga.modelo}" no esta instalado. Instalalo con: docker exec -it ollama ollama pull ${carga.modelo}`,
+                            });
+                        }
+                        terminar({ ok: false, error: 'Ollama respondio con un error. Revisa los registros del contenedor.' });
+                    });
+                    return;
+                }
+
+                let pendiente = '';
+                const procesar = (linea) => {
+                    if (!linea.trim()) return;
+                    let dato;
+                    try { dato = JSON.parse(linea); } catch { return; }
+                    if (dato.error) return terminar({ ok: false, error: 'Ollama devolvio un error durante la respuesta.' });
+                    const texto = dato.message && dato.message.content;
+                    if (texto && !evento.sender.isDestroyed()) evento.sender.send('ollama:fragmento', { id, texto });
+                    if (dato.done && !evento.sender.isDestroyed()) evento.sender.send('ollama:fragmento', { id, fin: true });
+                };
+                respuesta.on('data', (trozo) => {
+                    pendiente += trozo;
+                    const lineas = pendiente.split('\n');
+                    pendiente = lineas.pop();
+                    lineas.forEach(procesar);
+                });
+                respuesta.on('end', () => {
+                    procesar(pendiente);
+                    terminar({ ok: true, cancelada });
+                });
+                respuesta.on('close', () => terminar({ ok: true, cancelada }));
+            },
+        );
+
+        peticion.on('timeout', () => {
+            peticion.destroy();
+            terminar({ ok: false, error: `Ollama no respondio en ${OLLAMA_TIEMPO_LIMITE_MS / 1000} s.` });
+        });
+        peticion.on('error', (error) => {
+            if (cancelada) return terminar({ ok: true, cancelada: true });
+            const causas = {
+                ECONNREFUSED: 'Ollama no responde. Inicia el contenedor con: docker start ollama',
+                ECONNRESET: 'Se corto la conexion con Ollama.',
+            };
+            terminar({ ok: false, error: causas[error.code] || 'No se pudo contactar con Ollama en localhost:11434.' });
+        });
+        peticion.cancelar = () => {
+            cancelada = true;
+            peticion.destroy();
+        };
+
+        peticionOllama = peticion;
+        peticion.write(cuerpo);
+        peticion.end();
+    });
+}
+
+ipcMain.handle('catalogo:xml', (_evento, url) => descargar(String(url || '')));
+ipcMain.handle('catalogo:json', (_evento, url) => descargar(String(url || ''), 'application/json'));
+ipcMain.handle('ollama:chat', chatOllama);
+ipcMain.handle('ollama:cancelar', () => {
+    if (peticionOllama) peticionOllama.cancelar();
+});
 
 app.whenReady().then(() => {
     crearVentana();
