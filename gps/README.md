@@ -11,7 +11,7 @@ plataforma de la librería**: sólo comparte el repositorio para pasarlo a la VM
 | Carpeta | Qué es |
 |---|---|
 | `microservice/` | Flask + `flask-sock`. Recibe posiciones y las retransmite. También sirve el mapa en `/`. Puerto **5900** |
-| `GPSapp/` | App simple en Python que simula un vehículo y manda posición, velocidad y rumbo de Monterrey cada segundo |
+| `GPSapp/` | App simple en Python que simula un vehículo y manda posición, velocidad y rumbo de Monterrey cada segundo. Sigue **calles reales**: pide rutas a OSRM (`router.project-osrm.org`, necesita internet en la VM; otro servidor con `--osrm`) y al llegar elige otro destino |
 | `Map/` | Página con el mapa que muestra todos los vehículos moviéndose |
 | `deploy/` | Unidad de systemd del microservicio |
 
