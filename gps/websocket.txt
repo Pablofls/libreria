@@ -1,0 +1,7 @@
+crea un microservicio en flask con cree webxosckets para recibr coordenadas georeferenciales de Monterrey provsistas por una aplicacion de GPS. El microservicio deberá escuchar a los clientes de escritorio que mandaron Latitud y Longitud todo el tiempo. Al mismo tiempo. el microservicio proveera de datos georefernciados a un apágina web para mostar en un mapa la ubicacion geografica exacta, mostrando en tiempo real el omviemiento de los datos provistos porla aplicacion de escriotorio GPS.
+
+Quiero simular el movimiento de varios vehículos en un mapa usnaod web sockets. 
+
+Crea un directorio llamado /microservice con el microservico en flask con web sockets usando el puerto 5900, crea el directorio llamado /GPSapp con una palicacion simple en python que envie coordenadas GPS de Monterrey exclusivamente para simular un vehículo en movimiento . Crea un directorio /Map con una pagina web que incluya un mapa y que muestre todos vehiculos en movimientos provisto por el microservicio de websocokets.
+
+no olivdes crear un archivo README.md con las instrucciones de como usar esta aplicación.

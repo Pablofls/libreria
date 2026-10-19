@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vehículos en Monterrey</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; }
+  #app { display: flex; height: 100%; }
+  #panel { width: 240px; padding: 12px; box-sizing: border-box; overflow-y: auto; background: #f7f5f0; border-right: 1px solid #ddd; }
+  #panel h1 { font-size: 16px; margin: 0 0 8px; }
+  #estado { font-size: 13px; margin-bottom: 10px; }
+  #estado.on::before, #estado.off::before { content: "●"; margin-right: 6px; }
+  #estado.on::before { color: #2e8b57; }
+  #estado.off::before { color: #c0392b; }
+  #lista { list-style: none; padding: 0; margin: 0; font-size: 13px; }
+  #lista li { padding: 6px 0; border-bottom: 1px solid #e5e1d8; cursor: pointer; }
+  #lista .punto { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
+  #lista small { display: block; color: #666; }
+  #map { flex: 1; }
+  @media (max-width: 600px) { #app { flex-direction: column-reverse; } #panel { width: auto; height: 35%; border-right: 0; border-top: 1px solid #ddd; } }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="panel">
+    <h1>Vehículos en Monterrey</h1>
+    <div id="estado" class="off">Conectando…</div>
+    <ul id="lista"></ul>
+  </div>
+  <div id="map"></div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const MONTERREY = [25.6866, -100.3161];
+const map = L.map('map').setView(MONTERREY, 12);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19,
+  attribution: '&copy; colaboradores de <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+}).addTo(map);
+
+const vehiculos = new Map();   // id -> {marcador, estela, color, desde, hacia, t0, item}
+const DURACION = 1000;         // ms de la animación entre dos posiciones
+const MAX_ESTELA = 40;
+
+function color(id) {
+  let h = 0;
+  for (const c of id) h = (h * 31 + c.charCodeAt(0)) % 360;
+  return `hsl(${h}, 70%, 40%)`;
+}
+
+function posicion(d) {
+  let v = vehiculos.get(d.id);
+  const punto = [d.lat, d.lon];
+  if (!v) {
+    const c = color(d.id);
+    const marcador = L.circleMarker(punto, { radius: 9, color: '#fff', weight: 2, fillColor: c, fillOpacity: 1 }).addTo(map);
+    marcador.bindTooltip(d.id, { permanent: true, direction: 'top', offset: [0, -8] });
+    const estela = L.polyline([punto], { color: c, weight: 3, opacity: 0.6 }).addTo(map);
+    const item = document.createElement('li');
+    item.innerHTML = `<span class="punto" style="background:${c}"></span><b></b><small></small>`;
+    item.querySelector('b').textContent = d.id;
+    item.onclick = () => map.panTo(vehiculos.get(d.id).hacia);
+    document.getElementById('lista').appendChild(item);
+    v = { marcador, estela, color: c, desde: punto, hacia: punto, t0: 0, item };
+    vehiculos.set(d.id, v);
+  }
+  v.desde = v.marcador.getLatLng();
+  v.hacia = punto;
+  v.t0 = performance.now();
+  v.estela.addLatLng(punto);
+  if (v.estela.getLatLngs().length > MAX_ESTELA) v.estela.setLatLngs(v.estela.getLatLngs().slice(-MAX_ESTELA));
+  v.item.querySelector('small').textContent = `${d.lat.toFixed(5)}, ${d.lon.toFixed(5)}`;
+}
+
+function baja(id) {
+  const v = vehiculos.get(id);
+  if (!v) return;
+  v.marcador.remove(); v.estela.remove(); v.item.remove();
+  vehiculos.delete(id);
+}
+
+// Movimiento suave: interpola entre la posición anterior y la nueva.
+function animar(ahora) {
+  for (const v of vehiculos.values()) {
+    const k = Math.min(1, (ahora - v.t0) / DURACION);
+    const a = v.desde, b = v.hacia;
+    const lat = a.lat !== undefined ? a.lat : a[0], lon = a.lng !== undefined ? a.lng : a[1];
+    v.marcador.setLatLng([lat + (b[0] - lat) * k, lon + (b[1] - lon) * k]);
+  }
+  requestAnimationFrame(animar);
+}
+requestAnimationFrame(animar);
+
+function conectar() {
+  const estado = document.getElementById('estado');
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const ws = new WebSocket(`${proto}://${location.host}/ws/map`);
+  ws.onopen = () => { estado.textContent = 'Conectado'; estado.className = 'on'; };
+  ws.onmessage = (e) => {
+    const m = JSON.parse(e.data);
+    if (m.tipo === 'snapshot') { [...vehiculos.keys()].forEach(baja); m.vehiculos.forEach(posicion); }
+    else if (m.tipo === 'posicion') posicion(m);
+    else if (m.tipo === 'baja') baja(m.id);
+  };
+  ws.onclose = () => {
+    estado.textContent = 'Desconectado, reintentando…'; estado.className = 'off';
+    setTimeout(conectar, 2000);
+  };
+}
+conectar();
+</script>
+</body>
+</html>
