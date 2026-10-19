@@ -92,6 +92,24 @@ gcloud compute firewall-rules create libreria-permitir-gps --allow=tcp:5900 --so
 (Si prefieres limitarla a tu IP, cambia `--source-ranges`; recuerda que la tuya
 cambia seguido.)
 
+## Encender y apagar todo con un comando
+
+Desde `/opt/udem/libreria/gps` en la VM. Levanta el microservicio y 3 vehículos
+(`bash iniciar.sh 5` levanta 5; los que ya corren no se duplican):
+
+```bash
+bash iniciar.sh
+```
+
+Para apagar vehículos y microservicio:
+
+```bash
+bash detener.sh
+```
+
+Requiere haber hecho antes la instalación de arriba (venv de `microservice/` y
+de `GPSapp/`, unidad de systemd). Lo de abajo es el detalle paso a paso.
+
 ## Lanzar los vehículos
 
 En la VM, con el venv de la app GPS:
@@ -104,19 +122,53 @@ cd /opt/udem/libreria/gps/GPSapp && python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 ```
 
-Un vehículo por terminal (o con `&` para dejarlos en segundo plano):
+Un vehículo por comando. Con `nohup` y `&` quedan en segundo plano y no se
+cortan al cerrar la sesión SSH:
 
 ```bash
-.venv/bin/python gps_app.py --id auto-1
+nohup .venv/bin/python gps_app.py --id auto-1 > /tmp/auto-1.log 2>&1 &
 ```
 
 ```bash
-.venv/bin/python gps_app.py --id auto-2
+nohup .venv/bin/python gps_app.py --id auto-2 > /tmp/auto-2.log 2>&1 &
 ```
 
 ```bash
-.venv/bin/python gps_app.py --id auto-3
+nohup .venv/bin/python gps_app.py --id auto-3 > /tmp/auto-3.log 2>&1 &
 ```
+
+Comprobar que el microservicio los ve (debe decir `"vehiculos":3`):
+
+```bash
+curl -s http://127.0.0.1:5900/health
+```
+
+Detenerlos todos (desaparecen del mapa):
+
+```bash
+pkill -f gps_app.py
+```
+
+### Qué arranca solo y qué no
+
+| Pieza | Al encender la VM |
+|---|---|
+| Microservicio y mapa (`libreria-gps`) | **Arranca solo** sólo si se hizo `enable` (en la VM actual se hizo `disable`: es manual) |
+| Vehículos (`gps_app.py`) | **No arrancan solos**: hay que lanzarlos a mano con los comandos de arriba. Apagar o reiniciar la VM los mata |
+
+Si el microservicio también debe ser manual:
+
+```bash
+sudo systemctl disable libreria-gps
+```
+
+y para encenderlo cuando se quiera (`stop` lo apaga):
+
+```bash
+sudo systemctl start libreria-gps
+```
+
+Para ver su estado: `systemctl status libreria-gps --no-pager`.
 
 También pueden correr desde tu Mac apuntando a la VM:
 `python gps_app.py --id auto-4 --url ws://<IP-DE-LA-VM>:5900/ws/gps`.
