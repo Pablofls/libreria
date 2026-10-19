@@ -15,11 +15,12 @@ done
 curl -sf http://127.0.0.1:5900/health > /dev/null || { echo "El microservicio no responde en :5900"; exit 1; }
 
 for i in $(seq 1 "$N"); do
-  if pgrep -f "gps_app.py --id auto-$i\$" > /dev/null; then
-    echo "auto-$i ya estaba corriendo"
+  id=$(printf 'V%03d' "$i")
+  if pgrep -f "gps_app.py --id $id\$" > /dev/null; then
+    echo "$id ya estaba corriendo"
   else
-    nohup "$DIR/GPSapp/.venv/bin/python" "$DIR/GPSapp/gps_app.py" --id "auto-$i" > "/tmp/auto-$i.log" 2>&1 &
-    echo "auto-$i lanzado"
+    nohup "$DIR/GPSapp/.venv/bin/python" "$DIR/GPSapp/gps_app.py" --id "$id" > "/tmp/$id.log" 2>&1 &
+    echo "$id lanzado"
   fi
 done
 

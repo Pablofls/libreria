@@ -51,14 +51,18 @@ function color(id) {
   return `hsl(${h}, 70%, 40%)`;
 }
 
+const NORTE = ['N', 'NE', 'E', 'SE', 'S', 'SO', 'O', 'NO'];
+
+// d = {vehicle_id, latitude, longitude, speed, heading, history?}
 function posicion(d) {
+  d = { id: d.vehicle_id, lat: d.latitude, lon: d.longitude, speed: d.speed, heading: d.heading, history: d.history };
   let v = vehiculos.get(d.id);
   const punto = [d.lat, d.lon];
   if (!v) {
     const c = color(d.id);
     const marcador = L.circleMarker(punto, { radius: 9, color: '#fff', weight: 2, fillColor: c, fillOpacity: 1 }).addTo(map);
     marcador.bindTooltip(d.id, { permanent: true, direction: 'top', offset: [0, -8] });
-    const estela = L.polyline([punto], { color: c, weight: 3, opacity: 0.6 }).addTo(map);
+    const estela = L.polyline(d.history && d.history.length ? d.history : [punto], { color: c, weight: 3, opacity: 0.6 }).addTo(map);
     const item = document.createElement('li');
     item.innerHTML = `<span class="punto" style="background:${c}"></span><b></b><small></small>`;
     item.querySelector('b').textContent = d.id;
@@ -70,9 +74,11 @@ function posicion(d) {
   v.desde = v.marcador.getLatLng();
   v.hacia = punto;
   v.t0 = performance.now();
-  v.estela.addLatLng(punto);
+  if (!d.history) v.estela.addLatLng(punto);   // en el snapshot la estela ya viene completa
   if (v.estela.getLatLngs().length > MAX_ESTELA) v.estela.setLatLngs(v.estela.getLatLngs().slice(-MAX_ESTELA));
-  v.item.querySelector('small').textContent = `${d.lat.toFixed(5)}, ${d.lon.toFixed(5)}`;
+  const rumbo = NORTE[Math.round(d.heading / 45) % 8];
+  v.item.querySelector('small').textContent =
+    `${d.lat.toFixed(5)}, ${d.lon.toFixed(5)} · ${d.speed.toFixed(0)} km/h ${rumbo} (${Math.round(d.heading)}°)`;
 }
 
 function baja(id) {
@@ -97,13 +103,13 @@ requestAnimationFrame(animar);
 function conectar() {
   const estado = document.getElementById('estado');
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  const ws = new WebSocket(`${proto}://${location.host}/ws/map`);
+  const ws = new WebSocket(`${proto}://${location.host}/ws?role=map`);
   ws.onopen = () => { estado.textContent = 'Conectado'; estado.className = 'on'; };
   ws.onmessage = (e) => {
     const m = JSON.parse(e.data);
-    if (m.tipo === 'snapshot') { [...vehiculos.keys()].forEach(baja); m.vehiculos.forEach(posicion); }
-    else if (m.tipo === 'posicion') posicion(m);
-    else if (m.tipo === 'baja') baja(m.id);
+    if (m.type === 'snapshot') { [...vehiculos.keys()].forEach(baja); m.vehicles.forEach(posicion); }
+    else if (m.type === 'update') posicion(m);
+    else if (m.type === 'remove') baja(m.vehicle_id);
   };
   ws.onclose = () => {
     estado.textContent = 'Desconectado, reintentando…'; estado.className = 'off';

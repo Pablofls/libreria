@@ -1,6 +1,6 @@
 """Simula un vehículo que se mueve por Monterrey y envía su posición por WebSocket.
 
-Uso:  python gps_app.py --url ws://127.0.0.1:5900/ws/gps --id auto-1
+Uso:  python gps_app.py --url "ws://127.0.0.1:5900/ws?role=gps" --id V001
 Para varios vehículos, lanza varias instancias con distinto --id.
 """
 import argparse
@@ -40,8 +40,8 @@ class Vehiculo:
 
 def main():
     p = argparse.ArgumentParser(description="Simulador de GPS de un vehículo en Monterrey")
-    p.add_argument("--url", default="ws://127.0.0.1:5900/ws/gps")
-    p.add_argument("--id", default=f"auto-{random.randint(100, 999)}")
+    p.add_argument("--url", default="ws://127.0.0.1:5900/ws?role=gps")
+    p.add_argument("--id", default=f"V{random.randint(1, 999):03d}", help="vehicle_id, p. ej. V001")
     p.add_argument("--intervalo", type=float, default=1.0, help="segundos entre envíos")
     args = p.parse_args()
 
@@ -53,7 +53,13 @@ def main():
             print(f"[{args.id}] conectado")
             while True:
                 auto.avanzar(args.intervalo)
-                ws.send(json.dumps({"id": args.id, "lat": round(auto.lat, 6), "lon": round(auto.lon, 6)}))
+                ws.send(json.dumps({
+                    "vehicle_id": args.id,
+                    "latitude": round(auto.lat, 6),
+                    "longitude": round(auto.lon, 6),
+                    "speed": round(auto.velocidad * 3.6, 1),   # m/s -> km/h
+                    "heading": round(auto.rumbo) % 360,
+                }))
                 time.sleep(args.intervalo)
         except KeyboardInterrupt:
             print(f"[{args.id}] detenido")

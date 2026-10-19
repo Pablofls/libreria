@@ -5,33 +5,44 @@ plataforma de la librería**: sólo comparte el repositorio para pasarlo a la VM
 
 ```
  GPSapp/gps_app.py ──ws──►  microservice (Flask, :5900)  ──ws──►  Map/index.html
- (1 proceso = 1 vehículo)   /ws/gps          /ws/map              (Leaflet + OSM)
+ (1 proceso = 1 vehículo)   /ws?role=gps    /ws?role=map         (Leaflet + OSM)
 ```
 
 | Carpeta | Qué es |
 |---|---|
 | `microservice/` | Flask + `flask-sock`. Recibe posiciones y las retransmite. También sirve el mapa en `/`. Puerto **5900** |
-| `GPSapp/` | App simple en Python que simula un vehículo y manda lat/lon de Monterrey cada segundo |
+| `GPSapp/` | App simple en Python que simula un vehículo y manda posición, velocidad y rumbo de Monterrey cada segundo |
 | `Map/` | Página con el mapa que muestra todos los vehículos moviéndose |
 | `deploy/` | Unidad de systemd del microservicio |
 
 ## Protocolo
 
-**`/ws/gps`** (la app GPS envía, continuamente):
+Un solo endpoint WebSocket; el rol va en la URL:
+
+| Endpoint | Quién |
+|---|---|
+| `ws://<host>:5900/ws?role=gps` | El simulador GPS **envía** posiciones |
+| `ws://<host>:5900/ws?role=map` | La página con mapa **recibe** |
+| `http://<host>:5900/` | La página del mapa |
+| `http://<host>:5900/health` | Estado (nº de vehículos y visores) |
+
+Un `role` distinto cierra la conexión con un mensaje de error.
+
+**`role=gps`**: el simulador envía continuamente:
 
 ```json
-{"id": "auto-1", "lat": 25.6866, "lon": -100.3161}
+{"vehicle_id": "V001", "latitude": 25.6866, "longitude": -100.3161, "speed": 45.5, "heading": 270}
 ```
 
-Se rechaza (respuesta `{"tipo":"error","mensaje":…}`) lo que no sea JSON válido,
-no traiga `id` o salga de Monterrey (lat 25.50–25.85, lon −100.50…−100.15).
-Al cerrarse la conexión, el vehículo desaparece del mapa.
+`speed` en km/h (0–200) y `heading` en grados (0–360, 0 = norte). Se rechaza
+(respuesta `{"type":"error","message":…}`) lo que no sea JSON válido, no traiga
+`vehicle_id` o salga de Monterrey (lat 25.50–25.85, lon −100.50…−100.15). El
+microservicio guarda en memoria el estado actual y el historial (últimos 200
+puntos) de cada vehículo; al cerrarse su conexión, el vehículo desaparece.
 
-**`/ws/map`** (la página recibe): `{"tipo":"snapshot","vehiculos":[…]}` al
-conectar, luego `{"tipo":"posicion","id","lat","lon","ts"}` en cada
-actualización y `{"tipo":"baja","id"}` cuando un vehículo se desconecta.
-
-`GET /health` devuelve el número de vehículos y visores conectados.
+**`role=map`**: la página recibe `{"type":"snapshot","vehicles":[…]}` al conectar
+(cada vehículo con su `history`), luego `{"type":"update", …}` con cada posición
+y `{"type":"remove","vehicle_id":…}` cuando un vehículo se desconecta.
 
 ## Despliegue en la VM
 
@@ -126,15 +137,15 @@ Un vehículo por comando. Con `nohup` y `&` quedan en segundo plano y no se
 cortan al cerrar la sesión SSH:
 
 ```bash
-nohup .venv/bin/python gps_app.py --id auto-1 > /tmp/auto-1.log 2>&1 &
+nohup .venv/bin/python gps_app.py --id V001 > /tmp/V001.log 2>&1 &
 ```
 
 ```bash
-nohup .venv/bin/python gps_app.py --id auto-2 > /tmp/auto-2.log 2>&1 &
+nohup .venv/bin/python gps_app.py --id V002 > /tmp/V002.log 2>&1 &
 ```
 
 ```bash
-nohup .venv/bin/python gps_app.py --id auto-3 > /tmp/auto-3.log 2>&1 &
+nohup .venv/bin/python gps_app.py --id V003 > /tmp/V003.log 2>&1 &
 ```
 
 Comprobar que el microservicio los ve (debe decir `"vehiculos":3`):
@@ -171,7 +182,7 @@ sudo systemctl start libreria-gps
 Para ver su estado: `systemctl status libreria-gps --no-pager`.
 
 También pueden correr desde tu Mac apuntando a la VM:
-`python gps_app.py --id auto-4 --url ws://<IP-DE-LA-VM>:5900/ws/gps`.
+`python gps_app.py --id V004 --url "ws://<IP-DE-LA-VM>:5900/ws?role=gps"`.
 Opciones: `--intervalo` (segundos entre envíos, 1 por omisión).
 
 ## Ver el mapa
