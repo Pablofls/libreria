@@ -282,9 +282,10 @@ visual sólo se puede verificar a mano (no hay captura de pantalla desde Claude)
   `34-51-108-167.sslip.io`; no tocarlo). La librería entra por la IP:
   `/etc/httpd/conf.d/01-libreria.conf` (`deploy/apache-libreria.conf`) termina TLS
   con `libreria-api.crt` y reenvía a nginx, que sólo escucha en loopback:
-  `127.0.0.1:8008` (monolito, `library.conf`) y `127.0.0.1:8443` (API,
+  `127.0.0.1:8009` (monolito, `library.conf`) y `127.0.0.1:8443` (API,
   `library-api-tls.conf`). Si nginx no arranca con "Address already in use", es
-  que su configuración volvió a pedir 80/443.
+  que su configuración volvió a pedir 80/443. El 8008 lo usa un contenedor Docker
+  de Waylo: por eso el monolito está en el 8009.
 - Un `requirements.txt` que no lleva una dependencia nueva rompe el servicio sólo
   en la VM (`ModuleNotFoundError` en el worker de gunicorn): al añadir una
   librería, revisar el `requirements.txt` de **cada** servicio que la importe.
