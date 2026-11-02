@@ -1,0 +1,28 @@
+== Libreria * evidencia de proteccion JWT (login -> book) ==
+   login:    http://34.51.108.167:5000
+   catalogo: http://34.51.108.167:5002
+
+1. POST /login emite un JWT
+  JWT-01   ok    login del admin, 200
+  JWT-01b  ok    la respuesta trae un JWT con forma de JWT
+  JWT-02   ok    login del lector, 200
+  JWT-02b  ok    tambien trae un JWT con forma de JWT
+
+2. Las lecturas siguen publicas, sin token
+  JWT-03   ok    GET /books sin token nunca es 401
+  JWT-04   ok    GET /books/<isbn> sin token nunca es 401
+
+3. Las escrituras exigen un JWT de rol admin
+  JWT-05   ok    POST /books/insert sin token -> 401
+  JWT-06   ok    POST /books/insert con JWT de lector -> 403 (token valido, rol insuficiente)
+  JWT-07   ok    POST /books/insert con JWT de admin -> 201
+  JWT-08   ok    PATCH /books/update/<isbn> con JWT de admin -> 200
+  JWT-09   ok    PUT /books/update/<isbn> sin token -> 401
+  JWT-10   ok    DELETE /books/delete/<isbn> con JWT de lector -> 403
+  JWT-11   ok    DELETE /books/delete/<isbn> con JWT de admin -> 200 (limpieza)
+
+4. Un JWT sin firma nunca se acepta
+  JWT-12   ok    JWT forjado con {"alg":"none"} -> 401, no 201
+  JWT-13   ok    Authorization con basura -> 401, sin reventar
+
+15 comprobaciones, 0 fallos
