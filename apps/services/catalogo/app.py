@@ -357,6 +357,10 @@ def libro_a_dict(libro):
 
     datos['authors'] = _autores_a_dict(libro.get('autores', []))
     datos['images'] = _imagenes_a_dict(libro.get('imagenes', []))
+    # Opcional como `nationality`: sin sinopsis, la clave no aparece. La pide la
+    # app de escritorio Java para la ficha del libro.
+    if libro.get('sinopsis'):
+        datos['synopsis'] = libro['sinopsis']
 
     for concepto in libro.get('conceptos', []):
         registro = {'term': concepto['termino']}
@@ -405,6 +409,8 @@ def libro_a_xml(padre, datos):
     _autores_a_xml(nodo, datos['authors'])
 
     _hijo(nodo, 'year', datos['year'])
+    if 'synopsis' in datos:
+        _hijo(nodo, 'synopsis', datos['synopsis'])
 
     generos = ET.SubElement(nodo, 'genres')
     for genero in datos['genres']:
@@ -552,7 +558,7 @@ def error_respuesta(codigo, mensaje, detalles=None):
 # es justo lo que evita la 4FN del esquema.
 # -----------------------------------------------------------------------------
 SQL_LIBROS = """
-    SELECT l.id, l.isbn, l.titulo, l.anio_publicacion, l.precio, l.stock,
+    SELECT l.id, l.isbn, l.titulo, l.anio_publicacion, l.sinopsis, l.precio, l.stock,
            f.nombre AS formato
       FROM libros l
       JOIN formatos f ON f.id = l.formato_id

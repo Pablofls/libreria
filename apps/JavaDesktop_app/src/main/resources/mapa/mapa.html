@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Rastreo · Monterrey</title>
+<!-- Leaflet + OpenStreetMap. Este mapa NO abre conexiones a la API: la app Java
+     mantiene el WebSocket y llama a iniciar() / actualizar() con cada mensaje. -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  html, body, #map { height: 100%; margin: 0; }
+  body { font-family: -apple-system, "Segoe UI", sans-serif; background: #f7f1e5; }
+  .vehiculo { font-size: 26px; line-height: 30px; text-align: center;
+              filter: drop-shadow(0 1px 2px rgba(0,0,0,.45)); }
+  .punto { width: 16px; height: 16px; border-radius: 50%; border: 3px solid #fff;
+           box-shadow: 0 1px 3px rgba(0,0,0,.5); box-sizing: border-box; }
+  #aviso { position: absolute; z-index: 1000; left: 50%; top: 14px; transform: translateX(-50%);
+           background: #8c2f39; color: #fff; padding: 8px 14px; border-radius: 6px;
+           font-size: 13px; display: none; max-width: 70%; text-align: center; }
+  #leyenda { position: absolute; z-index: 1000; left: 12px; bottom: 22px; background: rgba(255,253,248,.95);
+             padding: 8px 10px; border-radius: 6px; font-size: 12px; color: #2b2118; line-height: 1.6;
+             box-shadow: 0 1px 4px rgba(0,0,0,.2); }
+  #leyenda i { display: inline-block; width: 18px; height: 4px; margin-right: 6px; vertical-align: middle; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="aviso"></div>
+<div id="leyenda">
+  <div><i style="background:#8c2f39"></i>Ruta planeada</div>
+  <div><i style="background:#1f3d36"></i>Recorrido</div>
+  <div>🏬 Almacén &nbsp; 📍 Destino &nbsp; 🚚 Vehículo</div>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const MONTERREY = [25.6866, -100.3161];
+const map = L.map('map', { zoomControl: true }).setView(MONTERREY, 12);
+
+// Tiles de OpenStreetMap. Si el servidor de OSM rechaza las peticiones del
+// WebView (pide Referer/User-Agent de navegador), se cambia a CARTO, que sirve
+// los mismos datos de OpenStreetMap.
+const atribucion = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
+let errores = 0, respaldo = false;
+const osm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: atribucion });
+osm.on('tileerror', () => {
+  if (++errores >= 4 && !respaldo) {
+    respaldo = true;
+    map.removeLayer(osm);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+      { maxZoom: 19, subdomains: 'abcd', attribution: atribucion + ' &copy; CARTO' }).addTo(map);
+  }
+});
+osm.addTo(map);
+
+const icono = (html, clase, tam) => L.divIcon({ html, className: clase || '', iconSize: tam || [30, 30], iconAnchor: [15, 15] });
+let planeada = null, recorrido = null, vehiculo = null, almacen = null, destino = null, seguir = true;
+let ruta = [], indice = 0;
+
+map.on('dragstart', () => { seguir = false; });   // si el usuario mueve el mapa, se deja de centrar
+
+function limpiar() {
+  [planeada, recorrido, vehiculo, almacen, destino].forEach(c => c && map.removeLayer(c));
+  planeada = recorrido = vehiculo = almacen = destino = null;
+  seguir = true;
+  document.getElementById('aviso').style.display = 'none';
+  map.setView(MONTERREY, 12);
+}
+
+function aviso(texto) {
+  const a = document.getElementById('aviso');
+  a.textContent = texto;
+  a.style.display = 'block';
+}
+
+function popup(m) {
+  return '<b>Pedido #' + m.pedido_id + '</b><br>' + m.code + '<br>' + m.estado +
+         '<br>' + m.lat.toFixed(5) + ', ' + m.lon.toFixed(5);
+}
+
+// Primer mensaje (o tras reconectar): ruta completa y lo ya recorrido.
+function iniciar(m) {
+  limpiar();
+  ruta = m.ruta;
+  indice = m.indice;
+  planeada = L.polyline(m.ruta, { color: '#8c2f39', weight: 4, dashArray: '8 8', opacity: .75 }).addTo(map);
+  recorrido = L.polyline(m.recorrido, { color: '#1f3d36', weight: 6, opacity: .9 }).addTo(map);
+  almacen = L.marker(m.ruta[0], { icon: icono('🏬', 'vehiculo') }).addTo(map).bindTooltip('Almacén de la librería');
+  destino = L.marker(m.ruta[m.ruta.length - 1], { icon: icono('📍', 'vehiculo') }).addTo(map).bindTooltip('Destino de la entrega');
+  vehiculo = L.marker([m.lat, m.lon], { icon: icono('🚚', 'vehiculo'), zIndexOffset: 1000 }).addTo(map).bindPopup(popup(m));
+  map.fitBounds(planeada.getBounds(), { padding: [40, 40] });
+  if (m.estado === 'Entregado') vehiculo.openPopup();
+}
+
+// Cada segundo: nueva posición, sin recargar el mapa.
+function actualizar(m) {
+  if (!vehiculo) return;
+  const p = [m.lat, m.lon];
+  vehiculo.setLatLng(p).setPopupContent(popup(m));
+  // La estela sigue las esquinas de la ruta que el vehículo pasó desde el último mensaje.
+  const pts = recorrido.getLatLngs();
+  pts.pop();                                    // la posición anterior (punto intermedio)
+  for (let i = indice + 1; i <= m.indice && i < ruta.length; i++) pts.push(L.latLng(ruta[i]));
+  pts.push(L.latLng(p));
+  recorrido.setLatLngs(pts);
+  indice = Math.max(indice, m.indice);
+  if (seguir && !map.getBounds().pad(-0.15).contains(p)) map.panTo(p);
+  if (m.estado === 'Entregado') vehiculo.openPopup();
+}
+</script>
+</body>
+</html>

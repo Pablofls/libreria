@@ -1,0 +1,87 @@
+/* Tema crema / verde / burdeos, el mismo de la app Tk (apps/services/soap/cliente/tienda.py). */
+.root {
+    -papel: #f7f1e5;
+    -tarjeta: #fffdf8;
+    -tinta: #2b2118;
+    -verde: #1f3d36;
+    -burdeos: #8c2f39;
+    -dorado: #c99a2e;
+    -gris: #7a6e63;
+    -borde: #e2d6c0;
+    -fx-font-family: "Helvetica Neue", "Segoe UI", sans-serif;
+    -fx-font-size: 13px;
+    -fx-base: #eadfc8;
+    -fx-background-color: -papel;
+    -fx-text-fill: -tinta;
+    -fx-accent: -verde;
+    -fx-focus-color: -verde;
+}
+
+.label { -fx-text-fill: -tinta; }
+
+/* Barra superior y menú */
+.barra { -fx-background-color: -verde; }
+.barra .label { -fx-text-fill: #f7f1e5; }
+.marca { -fx-font-size: 20px; -fx-font-weight: bold; -fx-font-family: Georgia, serif; }
+.marca-grande { -fx-font-size: 28px; -fx-font-weight: bold; -fx-font-family: Georgia, serif; -fx-text-fill: -verde; }
+.usuario { -fx-font-size: 12px; }
+.boton-cesta { -fx-background-color: -dorado; -fx-text-fill: -tinta; -fx-font-weight: bold; }
+
+.menu { -fx-background-color: #efe6d3; -fx-border-color: -borde; -fx-border-width: 0 1 0 0; -fx-pref-width: 190; }
+.menu-boton { -fx-background-color: transparent; -fx-alignment: center-left; -fx-padding: 9 12; -fx-font-size: 14px; }
+.menu-boton:hover { -fx-background-color: #e2d6c0; }
+.menu-boton.activo { -fx-background-color: -verde; -fx-text-fill: white; -fx-font-weight: bold; }
+.nota-menu { -fx-font-size: 10px; -fx-text-fill: -gris; }
+
+/* Botones */
+.button { -fx-background-radius: 6; -fx-padding: 6 12; -fx-cursor: hand; }
+.button.acento { -fx-background-color: -burdeos; -fx-text-fill: white; -fx-font-weight: bold; }
+.button.acento:hover { -fx-background-color: #a63a46; }
+.button.acento:disabled { -fx-background-color: #c9a3a8; }
+
+/* Tipografía */
+.titulo { -fx-font-size: 22px; -fx-font-weight: bold; -fx-font-family: Georgia, serif; -fx-text-fill: -verde; }
+.subtitulo { -fx-font-size: 13px; -fx-text-fill: -gris; }
+.seccion { -fx-font-weight: bold; -fx-text-fill: -verde; }
+.texto { -fx-font-size: 13px; }
+.nota { -fx-font-size: 11px; -fx-text-fill: -gris; }
+.mensaje-error { -fx-text-fill: -burdeos; -fx-font-weight: bold; }
+.aviso { -fx-background-color: #fbefd2; -fx-padding: 8; -fx-background-radius: 6; }
+
+/* Tarjetas y portadas */
+.tarjeta { -fx-background-color: -tarjeta; -fx-background-radius: 10; -fx-border-color: -borde;
+           -fx-border-radius: 10; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.08), 8, 0, 0, 2); }
+.tarjeta-libro:hover { -fx-border-color: -dorado; }
+.tarjeta-titulo { -fx-font-weight: bold; -fx-font-size: 13px; }
+.tarjeta-autor { -fx-text-fill: -gris; -fx-font-size: 12px; }
+.precio { -fx-font-weight: bold; -fx-text-fill: -burdeos; }
+.precio-grande { -fx-font-weight: bold; -fx-text-fill: -burdeos; -fx-font-size: 20px; }
+.disponible { -fx-text-fill: #2e7d4f; -fx-font-size: 11px; }
+.agotado { -fx-text-fill: -burdeos; -fx-font-size: 11px; -fx-font-weight: bold; }
+.portada { -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.25), 6, 0, 1, 2); }
+.portada-titulo { -fx-text-fill: #f7f1e5; -fx-font-family: Georgia, serif; -fx-font-weight: bold;
+                  -fx-alignment: center; -fx-text-alignment: center; }
+.portada-leyenda { -fx-text-fill: #f7f1e5; -fx-font-size: 9px; -fx-opacity: 0.8; -fx-padding: 0 0 6 0; }
+.caja-autor { -fx-background-color: #f4ecdc; -fx-background-radius: 6; }
+
+/* Estados */
+.pastilla { -fx-padding: 2 10; -fx-background-radius: 10; -fx-font-size: 11px; -fx-font-weight: bold;
+            -fx-background-color: #e2d6c0; }
+.estado-pagado, .estado-aprobado, .estado-activa, .estado-enviado { -fx-background-color: #cfe6d6; -fx-text-fill: #1d5a36; }
+.estado-pendiente { -fx-background-color: #fbefd2; -fx-text-fill: #7a5a10; }
+.estado-cancelado, .estado-rechazado, .estado-reembolsado, .estado-inactiva { -fx-background-color: #f2d4d7; -fx-text-fill: -burdeos; }
+.codigo-rastreo { -fx-font-family: "Menlo", monospace; -fx-font-size: 18px; -fx-font-weight: bold;
+                  -fx-text-fill: -verde; -fx-background-color: #eef3ef; -fx-padding: 6 12; -fx-background-radius: 6; }
+
+/* Rastreo */
+.estado-grande { -fx-font-size: 18px; -fx-font-weight: bold; -fx-text-fill: -burdeos; }
+.paso { -fx-text-fill: -gris; }
+.paso.hecho { -fx-text-fill: #2e7d4f; -fx-font-weight: bold; }
+.paso.actual { -fx-text-fill: -burdeos; -fx-font-weight: bold; }
+.conexion.conectado { -fx-text-fill: #2e7d4f; -fx-font-weight: bold; }
+.conexion.desconectado { -fx-text-fill: -burdeos; }
+
+.fondo-login { -fx-background-color: linear-gradient(to bottom right, #1f3d36, #2d5a4f 60%, #8c2f39); }
+.sin-borde, .sin-borde > .viewport { -fx-background-color: transparent; -fx-background: transparent; }
+.monoespaciado { -fx-font-family: "Menlo", monospace; -fx-font-size: 11px; }
+.table-view { -fx-background-color: -tarjeta; }

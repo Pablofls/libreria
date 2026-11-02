@@ -12,6 +12,7 @@ Documentación completa en [README.md](README.md).
 |---|---|
 | `apps/web-monolito/` | El monolito Node + Express + EJS. Puerto 3000 |
 | `apps/electron-app/` | Cliente de escritorio Electron |
+| `apps/JavaDesktop_app/` | Cliente de escritorio JavaFX (Maven): REST + JWT, cesta, compra, rastreo por WebSocket, SOAP |
 | `apps/services/catalogo/` | Microservicio Flask de catálogo, bilingüe XML/JSON. Puerto 5002 |
 | `apps/services/soap/` | Microservicio SOAP de clasificación Cloud, con WSDL. Puerto 5001 |
 | `apps/services/login/` | Microservicio Flask de autenticación. Puerto 5000 |
@@ -343,6 +344,17 @@ reiniciar los seis servicios. Rotar el secreto JWT cierra todas las sesiones.
 8. **Pendiente opcional:** cerrar 5003–5006 hacia fuera (ligar a `127.0.0.1` y quitar
    reglas), probar la app con el usuario lector, borrar el libro de prueba
    `9999999999998 / Evidencia curl`, y rediseño visual de la app (portadas).
+
+### App de escritorio Java (`apps/JavaDesktop_app/`, 2026-11-01)
+
+JavaFX 21 + Maven, sin acceso a la BD: REST por nginx 443 (`API_BASE`, `CA_CERT`).
+`bash ejecutar.sh` (fija JDK 21: el Maven de Homebrew usa un JDK 27 y JavaFX 21
+necesita `jdk.jsobject`) y `mvn test`. Rastreo: código `LIB-MTY-<año>-<id 6 dígitos>`,
+WebSocket `wss://<IP>/track/ws?code=` con `Authorization`, servido por
+`gps/microservice/entregas.py`, que **delega la autorización** reenviando el JWT a
+`GET /orders/<id>` de pedidos. Adaptaciones: `synopsis` en el catálogo, `/track/ws`
+y `/soap` (con `auth_request` contra `/orders/books`) en `nginx-api-tls.conf`.
+Entregable: `docs/javadesktop/ENTREGA.md` / `.pdf`.
 
 ## Comandos
 

@@ -9,6 +9,9 @@ Un solo endpoint, el rol va en la URL:
       {"type": "update", ...}                   en cada posición
       {"type": "remove", "vehicle_id": ...}     cuando un vehículo se desconecta
 
+  ws://host:5900/track/ws?code=LIB-MTY-2026-000125   (Authorization: Bearer <JWT>)
+      rastreo de la entrega de UN pedido para la app Java (ver entregas.py)
+
   /        -> sirve ../Map/index.html
   /health  -> estado
 """
@@ -21,6 +24,8 @@ from pathlib import Path
 
 from flask import Flask, jsonify, request, send_from_directory
 from flask_sock import Sock
+
+import entregas
 
 # Caja que delimita Monterrey y su área metropolitana. Todo lo de fuera se rechaza.
 LAT_MIN, LAT_MAX = 25.50, 25.85
@@ -141,6 +146,11 @@ def ws_endpoint(ws):
         ws.close()
 
 
+@sock.route("/track/ws")
+def track_endpoint(ws):
+    entregas.atender(ws, request.args.get("code"), request.headers.get("Authorization", ""))
+
+
 @app.get("/")
 def index():
     return send_from_directory(DIR_MAPA, "index.html")
@@ -149,7 +159,9 @@ def index():
 @app.get("/health")
 def health():
     with candado:
-        return jsonify(estado="ok", vehiculos=len(vehiculos), visores=len(visores))
+        n_vehiculos, n_visores = len(vehiculos), len(visores)
+    return jsonify(estado="ok", vehiculos=n_vehiculos, visores=n_visores,
+                   rastreos=len(entregas.activos))
 
 
 if __name__ == "__main__":

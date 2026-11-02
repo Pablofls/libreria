@@ -1,0 +1,12 @@
+# Copia este archivo como config.properties (no se versiona) para cambiar la
+# configuración sin variables de entorno. Aquí NO van credenciales: el correo y
+# la contraseña se escriben en la pantalla de login.
+
+# nginx de la VM en GCP (443): REST, portadas, WebSocket de rastreo y SOAP.
+API_BASE=https://34.51.108.167
+
+# Copia del certificado autofirmado de la VM (gcloud compute scp …:/etc/pki/tls/certs/libreria-api.crt ~/)
+CA_CERT=~/libreria-api.crt
+
+# Método de pago simulado por omisión: tarjeta | transferencia | efectivo
+METODO_PAGO=tarjeta

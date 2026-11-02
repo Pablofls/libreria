@@ -6,6 +6,10 @@ After=network.target
 Type=simple
 User=pablogcp26
 WorkingDirectory=/opt/udem/libreria/gps/microservice
+# Rastreo de entregas (entregas.py): a quien pregunta si el pedido es del usuario,
+# y cuanto dura una entrega simulada, del pago a Entregado. Nada secreto.
+Environment=PEDIDOS_URL=http://127.0.0.1:5005
+Environment=ENTREGA_SEGUNDOS=180
 # Un solo worker: las posiciones viven en memoria del proceso. Los hilos atienden los WebSockets.
 ExecStart=/opt/udem/libreria/gps/microservice/.venv/bin/gunicorn --workers 1 --threads 100 --bind 0.0.0.0:5900 app:app
 Restart=on-failure

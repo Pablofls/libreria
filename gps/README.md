@@ -23,6 +23,7 @@ Un solo endpoint WebSocket; el rol va en la URL:
 |---|---|
 | `ws://<host>:5900/ws?role=gps` | El simulador GPS **envía** posiciones |
 | `ws://<host>:5900/ws?role=map` | La página con mapa **recibe** |
+| `ws://<host>:5900/track/ws?code=LIB-MTY-…` | **Rastreo de un pedido** para la app Java (ver abajo) |
 | `http://<host>:5900/` | La página del mapa |
 | `http://<host>:5900/health` | Estado (nº de vehículos y visores) |
 
@@ -199,3 +200,26 @@ clic centra el mapa en él. Si el WebSocket se cae, la página reconecta sola.
   lo abra necesita internet.
 - Sin HTTPS el tráfico va en claro; es una simulación sin datos sensibles. Tras
   un proxy con TLS la página usa `wss://` automáticamente.
+
+## Rastreo de pedidos (`/track/ws`, para `apps/JavaDesktop_app`)
+
+`microservice/entregas.py` añade un vehículo de reparto **por pedido real**,
+aparte de los vehículos libres de `role=gps`/`role=map` (que no cambian).
+
+- **Código:** `LIB-MTY-<año de creación del pedido>-<id en 6 dígitos>`.
+- **Autorización delegada:** el cliente manda `Authorization: Bearer <JWT>`; el
+  servicio lo reenvía a `GET $PEDIDOS_URL/orders/<id>` (pedidos, 5005). Pedidos
+  verifica firma, expiración, revocación y propiedad: un pedido ajeno es 404 y
+  aquí se responde `{"type":"error"}` y se cierra. Este servicio no conoce el
+  secreto JWT ni la base. Se revalida cada 60 s.
+- **Simulación:** ruta OSRM del almacén (centro de Monterrey) a un destino
+  sembrado con el id del pedido; el estado depende del tiempo desde el pago
+  (`historial` del pedido), así que sobrevive a un reinicio. Pedido confirmado
+  (0–10 s) → Preparando (10–30 s) → Enviado → En ruta → **Entregado en el último
+  punto** a los `ENTREGA_SEGUNDOS` (180).
+- **Mensajes:** `snapshot` (con `ruta` y `recorrido`) y luego `update` cada segundo.
+- **Variables** (en la unidad de systemd, nada secreto): `PEDIDOS_URL`,
+  `ENTREGA_SEGUNDOS`, `OSRM_URL`.
+- **Por HTTPS:** nginx (`deploy/nginx-api-tls.conf`) publica `wss://<IP>/track/ws`;
+  el 5900 no necesita abrirse para esto.
+- **Pruebas sin red:** `python3 microservice/pruebas.py` (pedidos y OSRM falsos).

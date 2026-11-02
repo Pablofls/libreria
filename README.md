@@ -167,6 +167,10 @@ libreria/
 │   │   ├── preload.js            Puente aislado hacia el renderer
 │   │   └── renderer/             index.html · estilos.css · renderer.js
 │   │
+│   ├── JavaDesktop_app/          Cliente de escritorio JavaFX: REST + JWT, compra, rastreo por WebSocket
+│   │   ├── pom.xml · ejecutar.sh  Maven (JavaFX 21, Jackson) · arranque con JDK 21
+│   │   └── src/main/…            api/ · model/ · cesta/ · rastreo/ · ui/ · resources/mapa/mapa.html
+│   │
 │   └── services/                 Microservicios Python, uno por carpeta
 │       ├── users/                Usuarios y roles, JSON + JWT (Flask, 5003)
 │       ├── authors/              Autores y su relación con libros, JSON + JWT (Flask, 5004)
@@ -1036,6 +1040,15 @@ máquina limpia— están en
 [apps/electron-app/README.md](apps/electron-app/README.md).
 
 ---
+
+## Cliente de escritorio en Java (JavaFX)
+
+`apps/JavaDesktop_app/` es una app JavaFX que consume login, users, catálogo,
+authors, pedidos, pagos y el servicio SOAP por HTTPS, y rastrea cada pedido en un
+mapa Leaflet de Monterrey por WebSocket (`gps/microservice/entregas.py`). No toca
+la base de datos. Arranque: `bash apps/JavaDesktop_app/ejecutar.sh`. Detalle en
+[apps/JavaDesktop_app/README.md](apps/JavaDesktop_app/README.md) y entrega en
+[docs/javadesktop/ENTREGA.md](docs/javadesktop/ENTREGA.md).
 
 ## Documentación del ejercicio
 
