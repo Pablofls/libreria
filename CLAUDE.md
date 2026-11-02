@@ -277,6 +277,14 @@ visual sólo se puede verificar a mano (no hay captura de pantalla desde Claude)
   (`firewall-cmd --list-ports` debe incluir 443/tcp). La regla de **5003–5006**
   (`libreria-permitir-servicios-jwt`) **sigue restringida a una IP vieja** y debería
   cerrarse del todo (ver pendientes).
+- **Apache y nginx conviven (2026-11-02).** `httpd` está habilitado y tiene el 80 y
+  el 443 por otro proyecto del usuario (Waylo, VirtualHost por nombre
+  `34-51-108-167.sslip.io`; no tocarlo). La librería entra por la IP:
+  `/etc/httpd/conf.d/01-libreria.conf` (`deploy/apache-libreria.conf`) termina TLS
+  con `libreria-api.crt` y reenvía a nginx, que sólo escucha en loopback:
+  `127.0.0.1:8008` (monolito, `library.conf`) y `127.0.0.1:8443` (API,
+  `library-api-tls.conf`). Si nginx no arranca con "Address already in use", es
+  que su configuración volvió a pedir 80/443.
 - Un `requirements.txt` que no lleva una dependencia nueva rompe el servicio sólo
   en la VM (`ModuleNotFoundError` en el worker de gunicorn): al añadir una
   librería, revisar el `requirements.txt` de **cada** servicio que la importe.
