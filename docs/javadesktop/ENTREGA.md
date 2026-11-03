@@ -31,7 +31,7 @@ se conecta a PostgreSQL: todo pasa por los servicios desplegados en la VM de GCP
  │      │                                          │        │  /payments ─────────────► pagos     :5006  │   │
  │      ▼ executeScript("actualizar(…)")           │        │  /soap (auth_request) ──► soap      :5001 ─┘   │
  │  WebView: Leaflet + OpenStreetMap               │        │  /track/ws ─────────────► gps       :5900      │
- └─────────────────────────────────────────────────┘        │     gps ── GET /orders/{id} + JWT ─► pedidos    │
+ └─────────────────────────────────────────────────┘        │     gps ── GET /orders/{id} + JWT ─► pedidos   │
                                                             │  Redis: sesiones, revocación de JWT, caché     │
                                                             └────────────────────────────────────────────────┘
 ```
