@@ -22,7 +22,7 @@ se conecta a PostgreSQL: todo pasa por los servicios desplegados en la VM de GCP
 
 ```
  ┌──────────────── Mac del usuario ────────────────┐        ┌────────────── VM de GCP (CentOS) ──────────────┐
- │ App JavaFX                                      │ HTTPS  │ nginx :443 (certificado autofirmado)           │
+ │ App JavaFX                                      │ HTTPS  │ Apache :443 (TLS) ─► nginx 127.0.0.1:8443      │
  │  ApiClient ── REST/JSON + Bearer JWT ───────────┼───────►│  /login /token /logout ─► login     :5000      │
  │  LibreriaApi                                    │        │  /users ────────────────► users     :5003      │
  │  Cesta (memoria)                                │        │  /books ────────────────► catalogo  :5002 ─┐   │
@@ -55,7 +55,7 @@ Los dos caminos que pide la actividad están separados:
 | Rutas por calles | OSRM sobre OpenStreetMap |
 | Visualización | Leaflet 1.9.4 + tiles de OpenStreetMap |
 | SOAP/XML | DOM + `Transformer` del JDK, contrato WSDL del servicio de clasificación |
-| Infraestructura | VM de Google Compute Engine, nginx con TLS, systemd, firewalld |
+| Infraestructura | VM de Google Compute Engine, Apache (TLS) delante de nginx, systemd, firewalld |
 | Base de datos | PostgreSQL, sólo a través de los servicios |
 
 ### A.4 Microservicios consumidos y operaciones
@@ -186,16 +186,28 @@ Pruebas automatizadas (sin red):
 - `python3 apps/services/catalogo/pruebas.py`: 28 comprobaciones, 0 fallos tras añadir `synopsis`.
 - Prueba local de punta a punta: servidor GPS real + OSRM real + pedidos simulado. Un snapshot con ruta de 259 puntos y actualizaciones cada segundo; un pedido ajeno y un token inválido recibieron error y cierre.
 
-Capturas de la aplicación contra la VM (en `evidencias/javadesktop/`):
+Capturas de la aplicación contra la VM, con el usuario lector (archivos en `evidencias/javadesktop/`):
 
-1. Login y barra superior con el usuario autenticado.
-2. Catálogo con portadas, búsqueda por título y ficha de un libro con autores y descripción.
-3. Cesta con cantidades, subtotales y total; aviso de validación de precio o stock.
-4. Confirmación de compra con pedido, pago aprobado y código de rastreo.
-5. Mis compras: detalle, pagos e historial.
-6. Rastreo: el vehículo en ruta (dos capturas separadas unos segundos) y el estado *Entregado* al final.
-7. Código de otro usuario: mensaje de error.
-8. Sección SOAP (admin): conceptos pendientes y WSDL.
+<div class="fila">
+<figure><img src="../../evidencias/javadesktop/01-login.png" alt="Fig. 1. Login: correo y contraseña contra <code>POST /login</code>."><figcaption>Fig. 1. Login: correo y contraseña contra <code>POST /login</code>.</figcaption></figure>
+<figure><img src="../../evidencias/javadesktop/02-catalogo.png" alt="Fig. 2. Catálogo con portadas, autores, precio y stock; arriba el usuario autenticado (lector, id 30)."><figcaption>Fig. 2. Catálogo con portadas, autores, precio y stock; arriba el usuario autenticado (lector, id 30).</figcaption></figure>
+</div>
+
+<div class="fila">
+<figure><img src="../../evidencias/javadesktop/03-ficha-libro.png" alt="Fig. 3. Ficha del libro: descripción (<code>synopsis</code>) y autores cruzados con <code>/authors</code>."><figcaption>Fig. 3. Ficha del libro: descripción (<code>synopsis</code>) y autores cruzados con <code>/authors</code>.</figcaption></figure>
+<figure><img src="../../evidencias/javadesktop/04-cesta.png" alt="Fig. 4. Cesta en memoria: cantidades, subtotales y total."><figcaption>Fig. 4. Cesta en memoria: cantidades, subtotales y total.</figcaption></figure>
+</div>
+
+<div class="fila">
+<figure><img src="../../evidencias/javadesktop/05-compra-confirmada.png" alt="Fig. 5. Compra confirmada: pedido #14 <em>pagado</em>, pago #10 <em>aprobado</em> y código <code>LIB-MTY-2026-000014</code>."><figcaption>Fig. 5. Compra confirmada: pedido #14 <em>pagado</em>, pago #10 <em>aprobado</em> y código <code>LIB-MTY-2026-000014</code>.</figcaption></figure>
+<figure><img src="../../evidencias/javadesktop/06-mis-compras.png" alt="Fig. 6. Mis compras: los pedidos del lector, con estado, total, pagado y código."><figcaption>Fig. 6. Mis compras: los pedidos del lector, con estado, total, pagado y código.</figcaption></figure>
+</div>
+
+
+<figure class="grande"><img src="../../evidencias/javadesktop/07-mis-compras-detalle.png" alt="Fig. 7. Detalle de un pedido: libros, pago reembolsado e historial de estados."><figcaption>Fig. 7. Detalle de un pedido: libros, pago reembolsado e historial de estados.</figcaption></figure>
+<figure class="grande"><img src="../../evidencias/javadesktop/08-rastreo-en-ruta.png" alt="Fig. 8. Rastreo por WebSocket: el vehículo <em>en ruta de entrega</em> sobre la ruta planeada."><figcaption>Fig. 8. Rastreo por WebSocket: el vehículo <em>en ruta de entrega</em> sobre la ruta planeada.</figcaption></figure>
+<figure class="grande"><img src="../../evidencias/javadesktop/09-rastreo-entregado.png" alt="Fig. 9. El mismo pedido <em>Entregado</em> en el último punto de la ruta."><figcaption>Fig. 9. El mismo pedido <em>Entregado</em> en el último punto de la ruta.</figcaption></figure>
+<figure class="grande"><img src="../../evidencias/javadesktop/10-codigo-ajeno.png" alt="Fig. 10. Código de un pedido de otro usuario: <em>No hay ningún pedido tuyo con ese código</em>."><figcaption>Fig. 10. Código de un pedido de otro usuario: <em>No hay ningún pedido tuyo con ese código</em>.</figcaption></figure>
 
 ---
 
@@ -245,7 +257,7 @@ comunicación desde el Mac tiene cuatro implicaciones:
 - **Disponibilidad:** si la VM está apagada o un servicio cae, la app sólo puede
   mostrar el error. Por eso los errores son claros y el rastreo reconecta solo.
 - **Seguridad:** el tráfico cruza internet, así que va por TLS (443). El JWT viaja
-  en cabeceras y nunca en URLs. Sólo nginx está expuesto, y los puertos internos deberían cerrarse.
+  en cabeceras y nunca en URLs. Sólo el 443 está expuesto (Apache, que comparte la VM con otro proyecto, reenvía a nginx en loopback), y los puertos internos deberían cerrarse.
 - **Latencia:** cada petición cuesta decenas de milisegundos, por eso las llamadas
   van en hilos de fondo y la interfaz nunca se congela.
 - **Escalabilidad:** una sola VM es un punto único de falla. El GPS guarda estado en
