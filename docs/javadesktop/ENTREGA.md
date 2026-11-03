@@ -378,14 +378,12 @@ forma de conducir la conversación:
 - **Varios proyectos en una VM:** Apache distingue los sitios por nombre o por IP en el
   mismo puerto 443, y los demás servidores pueden quedar escuchando sólo en loopback.
 
-**Qué podría haber desarrollado sin IA.** El cliente REST, la cesta, las vistas JavaFX
-y el código de rastreo son partes que podría haber hecho por mi cuenta con la
-documentación de Java y de los servicios; la IA sobre todo me ahorró tiempo en ellas.
-Donde más me ayudó fue en revisar a la vez los contratos de siete servicios, en
-integrar el mapa de Leaflet dentro de JavaFX con WebSockets y en diagnosticar la
-convivencia de Apache y nginx. Lo que no podía delegar fueron las decisiones, el
-despliegue y la verificación en la VM, porque dependían de mi acceso al servidor y
-de comprobar con mis propios ojos que todo funcionara.
+**Qué podría haber desarrollado sin IA.** Las interfaces de la aplicación en Java
+(login, catálogo, cesta, Mis compras y perfil) las podría haber desarrollado por mi
+cuenta. La sección de rastrear pedido también, apoyándome en la aplicación de GPS que
+ya había desarrollado antes: ahí ya tenía resuelto el servidor con WebSockets, el
+cálculo de rutas por calles con OSRM y el mapa de Monterrey, así que habría partido de
+eso para vincularlo con los pedidos reales.
 
 ---
 
