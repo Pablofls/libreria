@@ -20,7 +20,7 @@ se conecta a PostgreSQL: todo pasa por los servicios desplegados en la VM de GCP
 
 ### A.2 Arquitectura de componentes
 
-```
+```diagrama
  ┌──────────────── Mac del usuario ────────────────┐        ┌────────────── VM de GCP (CentOS) ──────────────┐
  │ App JavaFX                                      │ HTTPS  │ Apache :443 (TLS) ─► nginx 127.0.0.1:8443      │
  │  ApiClient ── REST/JSON + Bearer JWT ───────────┼───────►│  /login /token /logout ─► login     :5000      │
@@ -300,34 +300,102 @@ Qué usaríamos para cada caso:
 
 ## C. Reflexión sobre el uso de inteligencia artificial
 
-> Borrador para completar con la experiencia propia: cada quien responde en primera persona.
+**Herramienta utilizada.** Usé Claude Code, con el modelo Claude Opus 5.5, desde
+su aplicación de escritorio y trabajando directamente sobre mi copia local del
+monorepo. La IA no tenía acceso a la VM de GCP ni a la base de datos: los comandos
+en el servidor los ejecuté yo y le compartía la salida.
 
-- **Herramienta:** Claude Code (modelo Claude Opus 5.5), en la app de escritorio, sobre el monorepo local.
-- **Actividades:** leer el código de los microservicios para extraer los contratos
-  reales, diseñar la arquitectura del rastreo, generar el cliente REST, las vistas
-  JavaFX y el mapa Leaflet, escribir pruebas y redactar documentación.
-- **Prompts más útiles:** dar el contexto de despliegue ("la BD y la app viven en
-  la VM; aquí sólo se cambia código y luego se hace pull"), pedir primero un plan y
-  aprobarlo, y exigir que los endpoints salieran del código de `apps/services` en lugar de inventarse.
-- **Errores y limitaciones detectados:**
-  - Maven de Homebrew corría con JDK 27, y JavaFX 21 falló por la falta de
-    `jdk.jsobject`. Se resolvió con `ejecutar.sh`, que fija JDK 21.
-  - La primera versión reportaba velocidades de 286 km/h porque la entrega está
-    acelerada. Se cambió a una velocidad urbana más el factor de aceleración.
-  - La primera captura de errores del cliente escondía el mensaje de "contraseña
-    incorrecta" porque lo confundía con una sesión vencida. Se introdujo `SesionPerdida`.
-  - El Python del Mac no validaba el certificado de OSRM (problema del entorno local, no de la VM).
-  - La IA no puede ver la ventana JavaFX: la parte visual se verificó a mano.
-- **Modificaciones del equipo:** *(completar: ajustes de interfaz, pruebas en la VM, correcciones tras probar con el lector).*
-- **Conceptos comprendidos mejor:** *(completar: por ejemplo, autorización delegada,
-  diferencia entre polling y push, rotación de refresh tokens, upgrade de HTTP a WebSocket en nginx).*
-- **Lo que podría desarrollarse sin IA:** *(completar).*
+**Actividades en las que la utilicé.**
+
+- Leer el código de los microservicios de `apps/services` para sacar las rutas,
+  los métodos y los cuerpos reales de cada operación.
+- Diseñar la arquitectura del rastreo: el código `LIB-MTY-…`, la autorización
+  delegada en el servicio de pedidos y la simulación basada en el tiempo desde el pago.
+- Generar el cliente REST en Java, las vistas JavaFX, la cesta, el flujo de
+  compra, el mapa con Leaflet y el endpoint `/track/ws` del microservicio GPS.
+- Escribir las pruebas automatizadas y preparar los cambios de nginx y Apache para la VM.
+- Redactar la documentación, ordenar las capturas y dar formato a este documento.
+
+**Cómo le planteé el trabajo.** Más que un prompt exacto, lo que funcionó fue la
+forma de conducir la conversación:
+
+- Al inicio le compartí el enunciado completo de la actividad y le expliqué cómo
+  está montado el proyecto: la base de datos y los servicios viven en la VM, en mi
+  computadora sólo se modifica el código y después hago `git pull` en el servidor.
+- Le pedí que antes de escribir código propusiera un plan. Respondí sus preguntas
+  (formato del documento y si publicar el servicio SOAP por HTTPS) y aprobé el plan
+  antes de que empezara.
+- Le insistí en que usara únicamente los endpoints que ya existían, revisando el
+  código de cada servicio, sin inventar rutas ni simular respuestas, y en que
+  documentara cualquier adaptación mínima al backend.
+- Durante el despliegue le pedí instrucciones paso a paso, un comando a la vez, y le
+  iba pegando la salida de la VM para que decidiera el siguiente paso.
+- Cuando apareció un conflicto de puertos, le aclaré que en la misma VM corre otro
+  proyecto mío de otra materia y que la solución no podía afectarlo.
+- Al final le pedí acomodar mis capturas en el documento y darle un formato sencillo,
+  como de Word, tomando como referencia otro trabajo mío.
+
+**Errores y limitaciones que detecté.**
+
+- El Maven instalado con Homebrew corría con JDK 27 y JavaFX 21 falló por la falta
+  del módulo `jdk.jsobject`. Se resolvió con `ejecutar.sh`, que fija el JDK 21.
+- La primera versión del rastreo mostraba velocidades de 286 km/h porque la entrega
+  está acelerada para la demostración. Se cambió a una velocidad urbana más el factor de aceleración.
+- El manejo de errores del cliente escondía el mensaje de "contraseña incorrecta"
+  porque lo confundía con una sesión vencida. Se corrigió con una excepción
+  específica para la sesión perdida (`SesionPerdida`).
+- La IA asumió que nginx podía usar los puertos 80 y 443, pero en la VM ya los ocupa
+  Apache por mi otro proyecto. Después movió el monolito al puerto 8008, que también
+  estaba ocupado por un contenedor Docker. Ambos problemas salieron de los logs que yo
+  le compartí y se resolvieron dejando a Apache al frente y a nginx sólo en loopback (8009 y 8443).
+- No puede ver la ventana de JavaFX ni el mapa, así que toda la parte visual la verifiqué yo.
+  Tampoco pudo leer mi carpeta de Escritorio por los permisos de macOS, por lo que
+  tuve que mover las capturas al repositorio.
+
+**Modificaciones y trabajo propio.**
+
+- Tomé las decisiones de diseño que me planteó: entregar el documento en PDF y
+  publicar el servicio SOAP protegido con JWT.
+- Hice todo el despliegue en la VM: `git pull`, reinicio del catálogo, instalación de
+  la unidad del GPS, configuración de nginx y del VirtualHost de Apache, y las pruebas con `curl`.
+- Diagnostiqué junto con la IA los conflictos de puertos revisando `journalctl` y
+  `ss`, y verifiqué que mi otro proyecto siguiera funcionando después de cada cambio.
+- Probé la aplicación completa con la cuenta de administrador y con la de lector: compra,
+  pago, Mis compras, rastreo hasta *Entregado* y el intento de rastrear un pedido ajeno.
+- Tomé las capturas, grabé el video y revisé el contenido de este documento.
+
+**Conceptos que comprendí mejor.**
+
+- **Autorización delegada:** el servidor de rastreo no necesita conocer el secreto
+  JWT; le reenvía el token del usuario al servicio de pedidos, que ya sabe validar la
+  firma, la revocación y si el pedido le pertenece.
+- **Polling contra push:** con WebSockets el servidor envía la posición sólo cuando
+  cambia, en una sola conexión, en lugar de que el cliente pregunte una y otra vez.
+- **Rotación de refresh tokens:** cada renovación invalida el token anterior, de modo
+  que un refresh robado sólo sirve una vez.
+- **Upgrade de HTTP a WebSocket a través de proxies:** la conexión empieza como HTTP y
+  tanto Apache como nginx deben reenviar las cabeceras `Upgrade` y `Connection`.
+- **Varios proyectos en una VM:** Apache distingue los sitios por nombre o por IP en el
+  mismo puerto 443, y los demás servidores pueden quedar escuchando sólo en loopback.
+
+**Qué podría haber desarrollado sin IA.** El cliente REST, la cesta, las vistas JavaFX
+y el código de rastreo son partes que podría haber hecho por mi cuenta con la
+documentación de Java y de los servicios; la IA sobre todo me ahorró tiempo en ellas.
+Donde más me ayudó fue en revisar a la vez los contratos de siete servicios, en
+integrar el mapa de Leaflet dentro de JavaFX con WebSockets y en diagnosticar la
+convivencia de Apache y nginx. Lo que no podía delegar fueron las decisiones, el
+despliegue y la verificación en la VM, porque dependían de mi acceso al servidor y
+de comprobar con mis propios ojos que todo funcionara.
 
 ---
 
 ## D. Entrega
 
-- **Monorepo comprimido** (desde la raíz, sólo lo versionado):
-  `git archive --format=tar.gz -o libreria-monorepo.tar.gz HEAD`
-- **Video demostrativo:** *(enlace de YouTube)*
+- **Monorepo comprimido**, generado desde la raíz con lo versionado en git:
+
+  ```
+  git archive --format=tar.gz -o libreria-monorepo.tar.gz HEAD
+  ```
+
+- **Video demostrativo:** <https://youtu.be/cnSwu5C-MVQ>
 - **Despliegue en la VM:** ver `apps/JavaDesktop_app/README.md` y `gps/README.md`.
