@@ -61,7 +61,10 @@ function posicion(d) {
   if (!v) {
     const c = color(d.id);
     const marcador = L.circleMarker(punto, { radius: 9, color: '#fff', weight: 2, fillColor: c, fillOpacity: 1 }).addTo(map);
-    marcador.bindTooltip(d.id, { permanent: true, direction: 'top', offset: [0, -8] });
+    // Como nodo de texto: Leaflet trata un string como HTML y el id lo manda cualquier cliente.
+    const etiqueta = document.createElement('span');
+    etiqueta.textContent = d.id;
+    marcador.bindTooltip(etiqueta, { permanent: true, direction: 'top', offset: [0, -8] });
     const estela = L.polyline(d.history && d.history.length ? d.history : [punto], { color: c, weight: 3, opacity: 0.6 }).addTo(map);
     const item = document.createElement('li');
     item.innerHTML = `<span class="punto" style="background:${c}"></span><b></b><small></small>`;

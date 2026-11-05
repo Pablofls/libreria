@@ -5,13 +5,13 @@ plataforma de la librería**: sólo comparte el repositorio para pasarlo a la VM
 
 ```
  GPSapp/gps_app.py ──ws──►  microservice (Flask, :5900)  ──ws──►  Map/index.html
- (1 proceso = 1 vehículo)   /ws?role=gps    /ws?role=map         (Leaflet + OSM)
+ (1 proceso = N vehículos) /ws?role=gps    /ws?role=map         (Leaflet + OSM)
 ```
 
 | Carpeta | Qué es |
 |---|---|
 | `microservice/` | Flask + `flask-sock`. Recibe posiciones y las retransmite. También sirve el mapa en `/`. Puerto **5900** |
-| `GPSapp/` | App simple en Python que simula un vehículo y manda posición, velocidad y rumbo de Monterrey cada segundo. Sigue **calles reales**: pide rutas a OSRM (`router.project-osrm.org`, necesita internet en la VM; otro servidor con `--osrm`) y al llegar elige otro destino |
+| `GPSapp/` | App en Python que simula **3 vehículos** (o los que digas con `--vehiculos`) y manda la posición, velocidad y rumbo de Monterrey cada segundo. Sigue **calles reales**: pide rutas a OSRM (`router.project-osrm.org`, necesita internet en la VM; otro servidor con `--osrm`) y al llegar elige otro destino |
 | `Map/` | Página con el mapa que muestra todos los vehículos moviéndose |
 | `deploy/` | Unidad de systemd del microservicio |
 
@@ -106,8 +106,8 @@ cambia seguido.)
 
 ## Encender y apagar todo con un comando
 
-Desde `/opt/udem/libreria/gps` en la VM. Levanta el microservicio y 3 vehículos
-(`bash iniciar.sh 5` levanta 5; los que ya corren no se duplican):
+Desde `/opt/udem/libreria/gps` en la VM. Levanta el microservicio y el simulador con 3 vehículos
+(`bash iniciar.sh 5` levanta 5; si el simulador ya corre, no lo duplica):
 
 ```bash
 bash iniciar.sh
@@ -134,20 +134,15 @@ cd /opt/udem/libreria/gps/GPSapp && python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 ```
 
-Un vehículo por comando. Con `nohup` y `&` quedan en segundo plano y no se
-cortan al cerrar la sesión SSH:
+Un solo proceso simula los tres vehículos (V001, V002, V003) y los manda por
+una misma conexión WebSocket. Con `nohup` y `&` queda en segundo plano y no se
+corta al cerrar la sesión SSH:
 
 ```bash
-nohup .venv/bin/python gps_app.py --id V001 > /tmp/V001.log 2>&1 &
+nohup .venv/bin/python gps_app.py > /tmp/gps_app.log 2>&1 &
 ```
 
-```bash
-nohup .venv/bin/python gps_app.py --id V002 > /tmp/V002.log 2>&1 &
-```
-
-```bash
-nohup .venv/bin/python gps_app.py --id V003 > /tmp/V003.log 2>&1 &
-```
+Para más vehículos, `--vehiculos 5`; para uno solo con un id concreto, `--id V007`.
 
 Comprobar que el microservicio los ve (debe decir `"vehiculos":3`):
 
@@ -166,7 +161,7 @@ pkill -f gps_app.py
 | Pieza | Al encender la VM |
 |---|---|
 | Microservicio y mapa (`libreria-gps`) | **Arranca solo** sólo si se hizo `enable` (en la VM actual se hizo `disable`: es manual) |
-| Vehículos (`gps_app.py`) | **No arrancan solos**: hay que lanzarlos a mano con los comandos de arriba. Apagar o reiniciar la VM los mata |
+| Vehículos (`gps_app.py`) | **No arrancan solos**: hay que lanzar el simulador a mano con el comando de arriba. Apagar o reiniciar la VM los mata |
 
 Si el microservicio también debe ser manual:
 
@@ -183,8 +178,9 @@ sudo systemctl start libreria-gps
 Para ver su estado: `systemctl status libreria-gps --no-pager`.
 
 También pueden correr desde tu Mac apuntando a la VM:
-`python gps_app.py --id V004 --url "ws://<IP-DE-LA-VM>:5900/ws?role=gps"`.
-Opciones: `--intervalo` (segundos entre envíos, 1 por omisión).
+`python gps_app.py --id V004 --url "ws://<IP-DE-LA-VM>:5900/ws?role=gps"`
+(con `--id` simula sólo ese vehículo, para no chocar con los V001–V003 de la VM).
+Opciones: `--vehiculos` (3 por omisión), `--intervalo` (segundos entre envíos, 1 por omisión).
 
 ## Ver el mapa
 

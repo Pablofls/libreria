@@ -1,11 +1,13 @@
-"""Simula un vehículo que recorre las calles de Monterrey y envía su posición por WebSocket.
+"""Simula varios vehículos que recorren las calles de Monterrey y envía sus posiciones por WebSocket.
 
 El recorrido es una ruta real por calles que pide a OSRM (ruteo sobre OpenStreetMap):
 se elige un destino al azar, se avanza por la ruta a la velocidad simulada y, al llegar,
 se pide otra ruta desde ahí.
 
-Uso:  python gps_app.py --url "ws://127.0.0.1:5900/ws?role=gps" --id V001
-Para varios vehículos, lanza varias instancias con distinto --id.
+Uso:  python gps_app.py                       -> 3 vehículos (V001, V002, V003)
+      python gps_app.py --vehiculos 5        -> V001 … V005
+      python gps_app.py --id V007            -> sólo ese vehículo
+Todos viajan por una sola conexión a ws://…/ws?role=gps; al cerrarla, desaparecen del mapa.
 """
 import argparse
 import json
@@ -105,34 +107,41 @@ class Vehiculo:
 
 
 def main():
-    p = argparse.ArgumentParser(description="Simulador de GPS de un vehículo en Monterrey")
+    p = argparse.ArgumentParser(description="Simulador de GPS de vehículos en Monterrey")
     p.add_argument("--url", default="ws://127.0.0.1:5900/ws?role=gps")
-    p.add_argument("--id", default=f"V{random.randint(1, 999):03d}", help="vehicle_id, p. ej. V001")
+    p.add_argument("--vehiculos", type=int, default=3, help="cuántos vehículos simular (V001, V002, …)")
+    p.add_argument("--id", help="simula sólo este vehicle_id, p. ej. V007 (ignora --vehiculos)")
     p.add_argument("--intervalo", type=float, default=1.0, help="segundos entre envíos")
     p.add_argument("--osrm", default=OSRM_POR_OMISION, help="URL base del servidor OSRM")
     args = p.parse_args()
+    if not args.id and args.vehiculos < 1:
+        p.error("--vehiculos debe ser al menos 1")
 
-    auto = Vehiculo(args.osrm.rstrip("/"))
-    print(f"[{args.id}] enviando a {args.url} cada {args.intervalo}s (Ctrl+C para salir)")
+    ids = [args.id] if args.id else [f"V{i:03d}" for i in range(1, args.vehiculos + 1)]
+    osrm = args.osrm.rstrip("/")
+    autos = {vid: Vehiculo(osrm) for vid in ids}
+    nombre = ",".join(ids)
+    print(f"[{nombre}] enviando a {args.url} cada {args.intervalo}s (Ctrl+C para salir)")
     while True:
         try:
             ws = websocket.create_connection(args.url, timeout=10)
-            print(f"[{args.id}] conectado")
+            print(f"[{nombre}] conectado")
             while True:
-                auto.avanzar(args.intervalo)
-                ws.send(json.dumps({
-                    "vehicle_id": args.id,
-                    "latitude": round(auto.lat, 6),
-                    "longitude": round(auto.lon, 6),
-                    "speed": round(auto.velocidad * 3.6, 1),   # m/s -> km/h
-                    "heading": round(auto.rumbo) % 360,
-                }))
+                for vid, auto in autos.items():
+                    auto.avanzar(args.intervalo)
+                    ws.send(json.dumps({
+                        "vehicle_id": vid,
+                        "latitude": round(auto.lat, 6),
+                        "longitude": round(auto.lon, 6),
+                        "speed": round(auto.velocidad * 3.6, 1),   # m/s -> km/h
+                        "heading": round(auto.rumbo) % 360,
+                    }))
                 time.sleep(args.intervalo)
         except KeyboardInterrupt:
-            print(f"[{args.id}] detenido")
+            print(f"[{nombre}] detenido")
             return
         except Exception as e:
-            print(f"[{args.id}] conexión perdida ({e}); reintentando en 3 s")
+            print(f"[{nombre}] conexión perdida ({e}); reintentando en 3 s")
             time.sleep(3)
 
 
