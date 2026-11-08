@@ -363,7 +363,7 @@ WebSocket `wss://<IP>/track/ws?code=` con `Authorization`, servido por
 `gps/microservice/entregas.py`, que **delega la autorización** reenviando el JWT a
 `GET /orders/<id>` de pedidos. Adaptaciones: `synopsis` en el catálogo, `/track/ws`
 y `/soap` (con `auth_request` contra `/orders/books`) en `nginx-api-tls.conf`.
-Entregable: `docs/javadesktop/ENTREGA.md` / `.pdf`.
+Entregable: `docs/javadesktop/AppJava.pdf` (sólo PDF desde 2026-11-07; el del GPS está en `gps/docs/ReporteGPS.pdf`).
 
 ## Comandos
 

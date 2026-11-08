@@ -1048,7 +1048,7 @@ authors, pedidos, pagos y el servicio SOAP por HTTPS, y rastrea cada pedido en u
 mapa Leaflet de Monterrey por WebSocket (`gps/microservice/entregas.py`). No toca
 la base de datos. Arranque: `bash apps/JavaDesktop_app/ejecutar.sh`. Detalle en
 [apps/JavaDesktop_app/README.md](apps/JavaDesktop_app/README.md) y entrega en
-[docs/javadesktop/ENTREGA.md](docs/javadesktop/ENTREGA.md).
+[docs/javadesktop/AppJava.pdf](docs/javadesktop/AppJava.pdf).
 
 ## Documentación del ejercicio
 
