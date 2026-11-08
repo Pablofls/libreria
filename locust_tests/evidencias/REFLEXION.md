@@ -49,7 +49,13 @@ límite), pero en este rango todos coinciden.
   - Los errores sólo decían "HTTP 0", sin la excepción real.
   - Las direcciones del enunciado no coinciden con la VM; se verificaron en
     `deploy/`.
-- **Lo que aprendí por mi cuenta:** _(pendiente: lo escribe el alumno)._
+- **Lo que aprendí por mi cuenta:** Antes de esta práctica pensaba que si una ruta
+  respondía en el navegador, el sistema “funcionaba”. Locust me enseñó que funcionar
+  con un usuario no dice nada de cómo se comporta con veinte: hay que medirlo, no
+  suponerlo. Mis hipótesis fallaron dos veces. Esperaba que el sistema se degradara
+  entre 12 y 20 usuarios y no pasó. Esperaba que `/books` fuera más rápido que
+  `/orders/books` por la caché y fue al revés, porque devuelve diez veces más datos.
+  Sin la prueba habría defendido ideas falsas.
 
 **6. Qué cambiaría.**
 - **En la prueba:** generar la carga desde otra VM de la misma región, subir de 20
