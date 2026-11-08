@@ -1,0 +1,59 @@
+[2026-11-07 20:49:21,572] Pablos-MacBook-Air-7/INFO/locust.main: Starting Locust 2.47.0
+[2026-11-07 20:49:21,575] Pablos-MacBook-Air-7/INFO/locust.runners: Shape test starting.
+[2026-11-07 20:49:21,576] Pablos-MacBook-Air-7/INFO/locust.runners: Shape worker starting
+[2026-11-07 20:49:21,576] Pablos-MacBook-Air-7/INFO/locust.runners: Shape test updating to 2 users at 2.00 spawn rate
+[2026-11-07 20:49:22,067] Pablos-MacBook-Air-7/INFO/locust.runners: Ramping to 2 users at a rate of 2.00 per second
+[2026-11-07 20:49:22,068] Pablos-MacBook-Air-7/INFO/locust.runners: All users spawned: {"Visitante": 2} (2 total users)
+[2026-11-07 20:49:51,755] Pablos-MacBook-Air-7/INFO/locust.runners: Shape test updating to 15 users at 15.00 spawn rate
+[2026-11-07 20:49:51,763] Pablos-MacBook-Air-7/INFO/locust.runners: Ramping to 15 users at a rate of 15.00 per second
+[2026-11-07 20:49:51,768] Pablos-MacBook-Air-7/INFO/locust.runners: All users spawned: {"Visitante": 15} (15 total users)
+[2026-11-07 20:50:21,933] Pablos-MacBook-Air-7/INFO/locust.runners: Shape test updating to 2 users at 15.00 spawn rate
+[2026-11-07 20:50:21,936] Pablos-MacBook-Air-7/INFO/locust.runners: Ramping to 2 users at a rate of 15.00 per second
+[2026-11-07 20:50:21,954] Pablos-MacBook-Air-7/INFO/locust.runners: All users spawned: {"Visitante": 2} (2 total users)
+[2026-11-07 20:51:22,415] Pablos-MacBook-Air-7/INFO/locust.runners: Shape test stopping
+[2026-11-07 20:51:22,459] Pablos-MacBook-Air-7/INFO/locust.main: Shape test completed, shutting down
+[2026-11-07 20:51:22,509] Pablos-MacBook-Air-7/INFO/locust.main: Shutting down (exit code 0)
+Type     Name                                                                          # reqs      # fails |    Avg     Min     Max    Med |   req/s  failures/s
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+GET      [authors] GET /authors                                                            41     0(0.00%) |     63      37     244     41 |    0.34        0.00
+GET      [authors] GET /health                                                             41     0(0.00%) |     56      36     226     39 |    0.34        0.00
+GET      [catalogo] GET /books                                                             41     0(0.00%) |    103      71     302     78 |    0.34        0.00
+GET      [catalogo] GET /health                                                            40     0(0.00%) |     58      37     133     41 |    0.33        0.00
+GET      [login] GET /health                                                               40     0(0.00%) |     62      36     161     43 |    0.33        0.00
+GET      [login] GET /session                                                              40     0(0.00%) |     55      36     247     40 |    0.33        0.00
+GET      [monolito] GET /library/autores/[id]                                              40     0(0.00%) |     62      39     219     44 |    0.33        0.00
+GET      [monolito] GET /library/libros                                                    39     0(0.00%) |    137     111     247    120 |    0.32        0.00
+GET      [monolito] GET /library/login                                                     41     0(0.00%) |     96      72     214     79 |    0.34        0.00
+GET      [pagos] GET /health                                                               41     0(0.00%) |     61      36     362     39 |    0.34        0.00
+GET      [pagos] GET /payments                                                             40     0(0.00%) |     60      37     241     41 |    0.33        0.00
+GET      [pedidos] GET /health                                                             41     0(0.00%) |     51      36     218     39 |    0.34        0.00
+GET      [pedidos] GET /orders/books                                                       41     0(0.00%) |     57      37     246     41 |    0.34        0.00
+GET      [users] GET /health                                                               40     0(0.00%) |     57      35     223     39 |    0.33        0.00
+GET      [users] GET /users/[id]                                                           40     0(0.00%) |     61      36     248     40 |    0.33        0.00
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                       606     0(0.00%) |     69      35     362     42 |    5.03        0.00
+
+Response time percentiles (approximated)
+Type     Name                                                                                  50%    66%    75%    80%    90%    95%    98%    99%  99.9% 99.99%   100% # reqs
+--------|--------------------------------------------------------------------------------|--------|------|------|------|------|------|------|------|------|------|------|------
+GET      [authors] GET /authors                                                                 41     48     65     89    130    130    240    240    240    240    240     41
+GET      [authors] GET /health                                                                  39     40     42     48    120    120    230    230    230    230    230     41
+GET      [catalogo] GET /books                                                                  78     95    110    140    150    160    300    300    300    300    300     41
+GET      [catalogo] GET /health                                                                 41     44     79     97    120    130    130    130    130    130    130     40
+GET      [login] GET /health                                                                    43     64     74     85    120    140    160    160    160    160    160     40
+GET      [login] GET /session                                                                   40     41     47     51    120    130    250    250    250    250    250     40
+GET      [monolito] GET /library/autores/[id]                                                   44     46     71    100    110    140    220    220    220    220    220     40
+GET      [monolito] GET /library/libros                                                        120    130    150    160    190    210    250    250    250    250    250     39
+GET      [monolito] GET /library/login                                                          79     82     89    130    150    160    210    210    210    210    210     41
+GET      [pagos] GET /health                                                                    39     41     42     46    110    130    360    360    360    360    360     41
+GET      [pagos] GET /payments                                                                  41     44     69    110    110    130    240    240    240    240    240     40
+GET      [pedidos] GET /health                                                                  39     40     41     42    110    110    220    220    220    220    220     41
+GET      [pedidos] GET /orders/books                                                            41     43     51     63    120    120    250    250    250    250    250     41
+GET      [users] GET /health                                                                    39     41     56    100    110    130    220    220    220    220    220     40
+GET      [users] GET /users/[id]                                                                40     45     77    100    120    140    250    250    250    250    250     40
+--------|--------------------------------------------------------------------------------|--------|------|------|------|------|------|------|------|------|------|------|------
+         Aggregated                                                                             42     75     89    110    130    150    220    250    360    360    360    606
+
+Login servicios OK (user_id 30).
+Login monolito OK.
+Perfil: spike | API: https://34.51.108.167 | monolito: http://34.51.108.167/library | CA_CERT: /Users/pablo/libreria-api.crt

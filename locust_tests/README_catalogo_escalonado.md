@@ -43,7 +43,7 @@ funciones y nginx no las publica, así que se prueban las `/books`.
 Desde la raíz del repo, en la terminal del Mac:
 
 ```bash
-cd locus_tests
+cd locust_tests
 ```
 
 ```bash
@@ -86,7 +86,7 @@ arrancar con `CA_CERT: NO ENCONTRADO` y desactiva la verificación TLS.
 ### Sólo lectura (recomendado para la smoke)
 
 ```bash
-locust
+locust -f catalogo_escalonado.py
 ```
 
 ### Con la etapa de escritura (insert / update / delete)
@@ -107,7 +107,7 @@ export ADMIN_PASS
 ```
 
 ```bash
-locust
+locust -f catalogo_escalonado.py
 ```
 
 Cada iteración crea un libro con ISBN `999-xxxxxxxxxx`, le cambia el stock y
@@ -148,14 +148,14 @@ Todas opcionales.
 Ejemplo, etapas de 30 s:
 
 ```bash
-ETAPA_SEGUNDOS=30 locust
+ETAPA_SEGUNDOS=30 locust -f catalogo_escalonado.py
 ```
 
 Contra el servicio corriendo en local (`python app.py` en
 `apps/services/catalogo/`), sin TLS:
 
 ```bash
-HOST=http://127.0.0.1:5002 HEALTH_PATH=/health locust
+HOST=http://127.0.0.1:5002 HEALTH_PATH=/health locust -f catalogo_escalonado.py
 ```
 
 ## Sin GUI (opcional)
@@ -163,7 +163,7 @@ HOST=http://127.0.0.1:5002 HEALTH_PATH=/health locust
 Misma prueba, con el resumen en la terminal y el reporte HTML en un archivo:
 
 ```bash
-locust --headless --html reporte_books.html
+locust -f catalogo_escalonado.py --headless --html reporte_books.html
 ```
 
 ## Si algo sale mal

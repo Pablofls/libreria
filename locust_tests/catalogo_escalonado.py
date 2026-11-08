@@ -1,8 +1,8 @@
 # =============================================================================
 # locustfile.py — prueba smoke del microservicio de catalogo (books, 5002).
 #
-#     cd locus_tests
-#     locust                       # -> http://localhost:8089 (GUI de Locust)
+#     cd locust_tests
+#     locust -f catalogo_escalonado.py   # -> http://localhost:8089 (GUI de Locust)
 #
 # Instalacion, variables y lectura de resultados: README.md de esta carpeta.
 #

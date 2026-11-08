@@ -1,0 +1,4 @@
+Method,Name,Error,Occurrences,First Seen,Last Seen
+GET,[monolito] GET /library/libros,CatchResponseError('HTTP 0'),1,2026-11-08T02:46:17Z,2026-11-08T02:46:17Z
+GET,[authors] GET /authors,CatchResponseError('HTTP 0'),1,2026-11-08T02:46:11Z,2026-11-08T02:46:11Z
+GET,[pagos] GET /health,CatchResponseError('HTTP 0'),1,2026-11-08T02:46:11Z,2026-11-08T02:46:11Z
