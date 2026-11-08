@@ -7,6 +7,7 @@
 | `graficas.py` | PNG por perfil, comparativa de p95 y `evidencias/tabla_resultados.md`, a partir de los CSV |
 | `evidencias/RESULTADOS.md` | Una fila por perfil y destino, con hipótesis y conclusión |
 | `evidencias/REFLEXION.md` | Reflexión de ~1 página |
+| `evidencias/smoke_manual.txt` | Smoke manual con `curl` (salud de los seis servicios, `/authors` y el monolito) |
 | `catalogo_escalonado.py` · `README_catalogo_escalonado.md` · `smoketestes_books.md` | Prueba anterior, sólo del catálogo (200+ usuarios). Se lanza con `locust -f catalogo_escalonado.py` |
 
 ## Qué se mide y por qué estas rutas

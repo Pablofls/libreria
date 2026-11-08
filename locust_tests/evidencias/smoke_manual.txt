@@ -1,0 +1,64 @@
+# Smoke manual con curl desde el Mac a la IP publica de la VM (sin credenciales)
+# Esta salida es de una REPETICION hecha despues de las pruebas de carga, para guardarla como evidencia: 2026-11-07 21:08:35
+
+$ curl --cacert ~/libreria-api.crt 'https://34.51.108.167/health/login?format=json'
+{
+  "estado": "ok",
+  "servicio": "login-libreria",
+  "version": "1.0.0",
+  "componentes": {
+    "base_de_datos": {
+      "estado": "ok",
+      "detalle": "Conexion establecida."
+    },
+    "correo": {
+      "estado": "ok",
+      "detalle": "Postfix responde."
+    },
+    "redis": {
+      "estado": "ok",
+      "detalle": "Redis responde."
+    }
+  }
+}
+
+-> HTTP 200 en 0.151826s
+
+$ curl --cacert ~/libreria-api.crt 'https://34.51.108.167/health/catalogo?format=json'
+{
+  "status": "ok",
+  "database": "conectada",
+  "books": 34,
+  "redis": "ok"
+}
+
+-> HTTP 200 en 0.190631s
+
+$ curl --cacert ~/libreria-api.crt 'https://34.51.108.167/health/users?format=json'
+{"servicio":"users","version":"1.0.0","estado":"ok","redis":"ok"}
+
+-> HTTP 200 en 0.112155s
+
+$ curl --cacert ~/libreria-api.crt 'https://34.51.108.167/health/authors?format=json'
+{"servicio":"authors","version":"1.0.0","estado":"ok","redis":"ok"}
+
+-> HTTP 200 en 0.109777s
+
+$ curl --cacert ~/libreria-api.crt 'https://34.51.108.167/health/pedidos?format=json'
+{"servicio":"pedidos","version":"1.0.0","estado":"ok","redis":"ok"}
+
+-> HTTP 200 en 0.196573s
+
+$ curl --cacert ~/libreria-api.crt 'https://34.51.108.167/health/pagos?format=json'
+{"servicio":"pagos","version":"1.0.0","estado":"ok","redis":"ok"}
+
+-> HTTP 200 en 0.108416s
+
+$ curl --cacert ~/libreria-api.crt -o /dev/null 'https://34.51.108.167/authors'
+-> HTTP 200, 4531 bytes en 0.111240s
+
+$ curl -o /dev/null 'http://34.51.108.167/library/login'
+-> HTTP 200, 1508 bytes en 0.069702s
+
+# Nota: un 200 de /health confirma disponibilidad, no que las operaciones de negocio funcionen.
+# La comprobacion original, ANTES de generar carga (2026-11-07 ~20:25), dio: health/catalogo 200, /authors 200, /library/login 200.
