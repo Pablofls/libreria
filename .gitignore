@@ -42,3 +42,6 @@ docs/ejercicio03/img/
 
 # Salida de compilación de los clientes Java
 clients/*/out/
+
+# Benchmark de proxies: secreto JWT efímero y configuraciones generadas
+docs/benchmark_proxy/generado/

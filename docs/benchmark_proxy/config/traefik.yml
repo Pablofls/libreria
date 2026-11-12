@@ -1,0 +1,11 @@
+# Traefik bajo prueba (configuración estática).
+entryPoints:
+  rp:
+    address: ":80"
+  lb:
+    address: ":81"
+providers:
+  file:
+    filename: /etc/traefik/dinamico.yml
+log:
+  level: ERROR

@@ -1,0 +1,23 @@
+== nginx + auth_request (http://172.28.0.20:82)
+  OK    sin token                esperado 401  obtenido 401
+  OK    token válido             esperado 200  obtenido 200
+  OK    token expirado           esperado 401  obtenido 401
+  OK    firma con otro secreto   esperado 401  obtenido 401
+  OK    alg=none                 esperado 401  obtenido 401
+  OK    ráfaga de 50 a /limitado (10 r/s)   200=11  429=39
+== Kong (http://172.28.0.25:8000)
+  OK    sin token                esperado 401  obtenido 401
+  OK    token válido             esperado 200  obtenido 200
+  OK    token expirado           esperado 401  obtenido 401
+  OK    firma con otro secreto   esperado 401  obtenido 401
+  OK    alg=none                 esperado 401  obtenido 401
+  OK    ráfaga de 50 a /limitado (10 r/s)   200=11  429=39
+== Envoy (jwt_authn) (http://172.28.0.23:8082)
+  OK    sin token                esperado 401  obtenido 401
+  OK    token válido             esperado 200  obtenido 200
+  OK    token expirado           esperado 401  obtenido 401
+  OK    firma con otro secreto   esperado 401  obtenido 401
+  OK    alg=none                 esperado 401  obtenido 401
+  OK    ráfaga de 50 a /limitado (10 r/s)   200=10  429=40
+
+Total de fallos: 0

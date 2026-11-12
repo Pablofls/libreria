@@ -1,0 +1,133 @@
+# =============================================================================
+# Banco de pruebas: proxy inverso, balanceador de carga y API gateway.
+# Lo levanta ejecutar.sh; no hace falta usarlo a mano.
+#
+# Reparto de CPU (cpuset) para que la comparación sea justa:
+#   0-2  k6, el generador de carga (que nunca sea él el cuello de botella)
+#   3    la herramienta bajo prueba (todas pinchadas al MISMO núcleo, de una en una)
+#   4-6  los tres backends b1, b2, b3
+#   7    el validador de JWT en Python (patrón auth_request de la VM)
+#
+# IPs fijas: un backend que se mata y se vuelve a arrancar en la prueba de
+# conmutación conserva su dirección, así ningún proxy depende del DNS.
+# =============================================================================
+
+name: bench-proxy
+
+x-backend: &backend
+  image: traefik/whoami:v1.10.3
+  restart: "no"
+
+networks:
+  bench:
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24
+
+services:
+  # --- Backends: servidor Go mínimo que responde con su nombre de host ------
+  b1:
+    <<: *backend
+    hostname: b1
+    container_name: bench-b1
+    cpuset: "4"
+    networks: { bench: { ipv4_address: 172.28.0.11 } }
+  b2:
+    <<: *backend
+    hostname: b2
+    container_name: bench-b2
+    cpuset: "5"
+    networks: { bench: { ipv4_address: 172.28.0.12 } }
+  b3:
+    <<: *backend
+    hostname: b3
+    container_name: bench-b3
+    cpuset: "6"
+    networks: { bench: { ipv4_address: 172.28.0.13 } }
+
+  # --- Validador de JWT: el mismo stack que los servicios de la VM ----------
+  auth:
+    build: ./auth
+    container_name: bench-auth
+    env_file: ./generado/auth.env
+    cpuset: "7"
+    volumes:
+      - ./verificar.py:/app/verificar.py:ro
+      - ./generado:/generado:ro
+    networks: { bench: { ipv4_address: 172.28.0.30 } }
+
+  # --- Herramientas bajo prueba --------------------------------------------
+  nginx:
+    image: nginx:1.27.3-alpine
+    container_name: bench-nginx
+    cpuset: "3"
+    volumes:
+      - ./config/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on: [b1, b2, b3, auth]
+    networks: { bench: { ipv4_address: 172.28.0.20 } }
+
+  haproxy:
+    image: haproxy:3.0.7-alpine
+    container_name: bench-haproxy
+    cpuset: "3"
+    volumes:
+      - ./config/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    depends_on: [b1, b2, b3]
+    networks: { bench: { ipv4_address: 172.28.0.21 } }
+
+  traefik:
+    image: traefik:v3.2.3
+    container_name: bench-traefik
+    cpuset: "3"
+    command: ["--configFile=/etc/traefik/traefik.yml"]
+    volumes:
+      - ./config/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./config/traefik-dinamico.yml:/etc/traefik/dinamico.yml:ro
+    depends_on: [b1, b2, b3]
+    networks: { bench: { ipv4_address: 172.28.0.22 } }
+
+  envoy:
+    image: envoyproxy/envoy:v1.32.3
+    container_name: bench-envoy
+    cpuset: "3"
+    command: ["envoy", "-c", "/etc/envoy/envoy.yaml", "--concurrency", "1", "--log-level", "warn"]
+    volumes:
+      - ./generado/envoy.yaml:/etc/envoy/envoy.yaml:ro
+    depends_on: [b1, b2, b3]
+    networks: { bench: { ipv4_address: 172.28.0.23 } }
+
+  apache:
+    image: httpd:2.4.62-alpine
+    container_name: bench-apache
+    cpuset: "3"
+    volumes:
+      - ./config/httpd.conf:/usr/local/apache2/conf/httpd.conf:ro
+    depends_on: [b1, nginx]
+    networks: { bench: { ipv4_address: 172.28.0.24 } }
+
+  kong:
+    image: kong:3.8.0
+    container_name: bench-kong
+    cpuset: "3"
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /kong/kong.yml
+      KONG_PROXY_LISTEN: 0.0.0.0:8000
+      KONG_ADMIN_LISTEN: "off"
+      KONG_NGINX_WORKER_PROCESSES: "1"
+      KONG_PROXY_ACCESS_LOG: "off"
+      KONG_LOG_LEVEL: warn
+    volumes:
+      - ./generado/kong.yml:/kong/kong.yml:ro
+    depends_on: [b1]
+    networks: { bench: { ipv4_address: 172.28.0.25 } }
+
+  # --- Generador de carga (sólo con `docker compose run`) -------------------
+  k6:
+    image: grafana/k6:0.55.0
+    cpuset: "0-2"
+    profiles: ["carga"]
+    volumes:
+      - ./k6:/scripts:ro
+      - ./resultados:/resultados
+    networks: [bench]

@@ -4,7 +4,7 @@ Librería Online — **monorepo**. La pieza principal es la app monolítica
 Node.js + Express + **EJS** + PostgreSQL (`apps/web-monolito/`), patrón MVC
 organizado por módulos de dominio; a su lado viven un cliente de escritorio y
 siete microservicios Python que hablan con la misma base.
-Documentación completa en [README.md](README.md).
+Visión general en [README.md](README.md); manual técnico completo en [MANUAL_TECNICO.md](MANUAL_TECNICO.md).
 
 ## Mapa del monorepo
 
@@ -74,11 +74,11 @@ En el mismo cambio, siempre:
 
 - Actualizar [`db/01_schema.sql`](db/01_schema.sql) para que refleje el estado
   final de las tablas.
-- Actualizar el **diagrama de relaciones** del README (sección "Base de datos").
+- Actualizar el **diagrama de relaciones** de `MANUAL_TECNICO.md` (sección "Base de datos").
 
 Nada valida `db/01_schema.sql` contra la VM automáticamente: si se saltan esos
 dos pasos, la documentación del esquema queda mintiendo. Ver
-[Flujo de cambios en la base de datos](README.md#flujo-de-cambios-en-la-base-de-datos).
+[Flujo de cambios en la base de datos](MANUAL_TECNICO.md#flujo-de-cambios-en-la-base-de-datos).
 
 ### Scripts canónicos de `db/`
 
@@ -162,7 +162,7 @@ y por HTTPS, 0 fallos; evidencias en `docs/evidencias/pruebas_servicios_*.txt`).
 Cada servicio es un `app.py` Flask + psycopg3 con pool, `.env` propio y unidad
 `deploy/libreria-<n>.service`. Las cuatro comparten el mismo bloque base
 (JWT, CORS, errores) **copiado**, no importado: un cambio ahí se replica a mano
-en los cuatro `app.py`. Detalle y despliegue: [README.md](README.md), sección
+en los cuatro `app.py`. Detalle y despliegue: [MANUAL_TECNICO.md](MANUAL_TECNICO.md), sección
 "Microservicios Users, Authors, Pedidos y Pagos (JWT)".
 
 | Servicio | Puerto | Rutas | Quién escribe |
@@ -215,7 +215,7 @@ en los cuatro `app.py`. Detalle y despliegue: [README.md](README.md), sección
   authors, pedidos y pagos (contraseña sólo en el `.env` de la VM). Claves:
   `session:<sid>`, `refresh:<sha256>` (el refresh nunca en claro, un solo uso),
   `jwt:revoked:<jti>`, `ratelimit:login:*`, `books:list:<filtros>` y
-  `books:<isbn>` (60 s), `metrics:<servicio>:*`. Tabla de TTL en el README.
+  `books:<isbn>` (60 s), `metrics:<servicio>:*`. Tabla de TTL en `MANUAL_TECNICO.md`.
 - **Política ante caída:** sesión, refresh, logout y **toda ruta con JWT** fallan
   **cerrado** (503; nunca se acepta un token sin poder comprobar la revocación);
   `GET /books` y `/books/<isbn>` fallan **abierto** (PostgreSQL). `/health` sigue

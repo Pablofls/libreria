@@ -1,1066 +1,322 @@
 # Librería Online
 
-Aplicación web **monolítica** para gestionar el catálogo de una librería: libros
-con varios autores y géneros, categorías, formatos, precio, existencias,
-imágenes y un glosario de conceptos propio de cada título.
+Plataforma de una librería en línea construida como **monorepo** para la materia
+de Integración de Aplicaciones Computacionales. Reúne en un mismo sistema las
+formas de integración que se ven en el curso: un **monolito** web MVC, **ocho
+microservicios** (REST/JSON, XML, SOAP y WebSocket), **tres clientes de
+escritorio** (Electron, Tkinter y JavaFX), una capa de **Redis** compartida y una
+base **PostgreSQL** normalizada hasta 4FN, todo desplegado en una VM de GCP detrás
+de un **proxy inverso con TLS**.
 
-**Node.js + Express + EJS + PostgreSQL**, renderizado en el servidor, sin APIs
-REST ni JSON entre navegador y servidor.
-
-> **La base de datos no es local.** La aplicación y PostgreSQL corren en una VM
-> de GCP. Desde este repositorio se **escribe** SQL, no se ejecuta: todo cambio
-> va a `db/pending/` y sólo es real cuando alguien lo corre en la VM. Ver
-> [Flujo de cambios en la base de datos](#flujo-de-cambios-en-la-base-de-datos).
+> Este archivo es la visión general. El manual técnico detallado (rutas, esquema
+> de la base, variables de entorno, despliegue paso a paso) está en
+> [MANUAL_TECNICO.md](MANUAL_TECNICO.md).
 
 ---
 
 ## Contenido
 
-1. [Arranque rápido](#arranque-rápido)
-2. [Arquitectura](#arquitectura)
-3. [Estructura de archivos](#estructura-de-archivos)
-4. [Variables de entorno](#variables-de-entorno)
-5. [Base de datos](#base-de-datos)
-6. [Flujo de cambios en la base de datos](#flujo-de-cambios-en-la-base-de-datos)
-7. [Rutas](#rutas)
-8. [Roles y autorización](#roles-y-autorización)
-9. [Subida de imágenes](#subida-de-imágenes)
-10. [Pruebas](#pruebas)
-11. [Despliegue](#despliegue)
-12. [Agregar un módulo nuevo](#agregar-un-módulo-nuevo)
-13. [Cliente de escritorio en Electron](#cliente-de-escritorio-en-electron)
-14. [Documentación del ejercicio](#documentación-del-ejercicio)
+1. [Propósito](#propósito)
+2. [Arquitectura del sistema](#arquitectura-del-sistema)
+3. [El monolito](#el-monolito)
+4. [Microservicios](#microservicios)
+5. [Aplicaciones cliente](#aplicaciones-cliente)
+6. [Datos compartidos: PostgreSQL y Redis](#datos-compartidos-postgresql-y-redis)
+7. [Seguridad](#seguridad)
+8. [Pruebas y rendimiento](#pruebas-y-rendimiento)
+9. [Mapa del repositorio](#mapa-del-repositorio)
+10. [Documentación](#documentación)
 
 ---
 
-## Arranque rápido
+## Propósito
 
-```bash
-cd apps/web-monolito
-npm install
-cp .env.example .env      # y completar DB_PASSWORD y SESSION_SECRET
-npm start                 # → http://127.0.0.1:3000
-```
+El sistema administra y vende el catálogo de una librería: libros con varios
+autores y géneros, categorías, formatos, precio, existencias, portadas y un
+glosario de conceptos por título; usuarios con rol (`admin` y `lector`); pedidos,
+pagos simulados y el rastreo en mapa de cada entrega.
 
-Éste es el monolito, la aplicación principal. Los demás procesos del monorepo
-—el cliente Electron y los microservicios de `apps/services/`— se arrancan cada
-uno desde su propia carpeta; ver el README de cada uno.
+El objetivo académico es **integrar aplicaciones heterogéneas** sobre los mismos
+datos y comparar estilos de arquitectura:
 
-Genera un `SESSION_SECRET` nuevo con:
-
-```bash
-node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
-```
-
-La aplicación **no arranca** si falta un secreto obligatorio: es deliberado. Un
-valor por omisión inseguro pasa desapercibido; un fallo al arrancar, no.
-
-Para montaje desde cero (base de datos incluida), ver
-[docs/GCP_COMMANDS.md](docs/GCP_COMMANDS.md).
-
----
-
-## Arquitectura
-
-![Arquitectura](docs/ARCHITECTURE_MONOLITHIC.png)
-
-Interfaz, lógica de negocio y acceso a datos viven en **una sola unidad
-desplegable**: un proceso Node.js. Los módulos dividen el código, no el
-despliegue: se llaman entre sí con llamadas de función dentro del mismo proceso,
-no por red.
-
-### Flujo de una petición
-
-```
-Navegador
-  → Apache/NGINX          publica /library, termina TLS, sirve estáticos
-  → app.js
-      cabeceras de seguridad (CSP, nosniff, X-Frame-Options)
-      express.static      /css, /js, /uploads
-      express.urlencoded  formularios HTML; NO hay express.json()
-      express-session     cookie httpOnly, SameSite=Lax
-      locals + CSRF       variables de vista y token anti-CSRF
-  → *.routes.js           método + URL → controller
-      requireLogin / requireAdmin
-  → *.controller.js       valida (services/), llama al model, elige la vista
-      → *.model.js        SQL parametrizado → PostgreSQL
-      → res.render(...)   plantilla EJS → HTML
-  → 404 y manejador de errores
-```
-
-### Responsabilidades
-
-Rutas relativas a `apps/web-monolito/`.
-
-| Capa | Archivo | Regla que no se rompe |
-|---|---|---|
-| **Model** | `src/modules/*/​*.model.js` | Todo el SQL, siempre parametrizado. No conoce `req`, `res` ni HTML |
-| **Vista** | `views/**/*.ejs` | Genera HTML. No hace consultas ni contiene lógica de negocio |
-| **Controller** | `src/modules/*/​*.controller.js` | Orquesta. No contiene SQL ni arma HTML |
-| **Rutas** | `src/modules/*/​*.routes.js` | Sólo mapea método + URL → controller, con su middleware |
-| **Middleware** | `middleware/` | Autorización, CSRF, subidas, errores. No conoce ningún dominio |
-| **Servicios** | `services/` | Validación y lógica compartida entre módulos. No conoce HTTP |
-| **Configuración** | `config/` | Único lugar que lee `process.env` y que crea el Pool de `pg` |
-
-> **Escapado.** EJS escapa por omisión con `<%= %>`. La salida cruda `<%- %>` se
-> usa **sólo** para incluir parciales, nunca para datos. Un título de libro que
-> contenga `<script>` se imprime como texto.
-
-Las decisiones y sus alternativas están en
-[docs/ENGINEERING_DECISIONS.md](docs/ENGINEERING_DECISIONS.md).
-
----
-
-## Estructura de archivos
-
-El repositorio es un **monorepo**: cada aplicación vive bajo `apps/` con sus
-propias dependencias y su propio arranque, y lo que comparten —base de datos,
-despliegue, documentación y pruebas— queda en la raíz.
-
-```
-libreria/
-├── apps/
-│   ├── web-monolito/             EL MONOLITO Node + Express + EJS (puerto 3000)
-│   │   ├── app.js                Arranque de Express, middleware general, montaje de rutas
-│   │   ├── package.json          Dependencias del monolito. `npm install` se corre AQUÍ
-│   │   ├── .env.example          Nombres de las variables, sin ningún valor real
-│   │   │
-│   │   ├── config/
-│   │   │   ├── env.js            Lee y valida .env; aborta si falta un secreto
-│   │   │   └── db.js             Pool único de PostgreSQL (pg)
-│   │   │
-│   │   ├── middleware/
-│   │   │   ├── auth.js           requireLogin · requireAdmin · requireInvitado
-│   │   │   ├── locals.js         Variables de vista + generación y chequeo de CSRF
-│   │   │   ├── subidas.js        Multer endurecido: tipo, extensión, tamaño y firma
-│   │   │   └── errores.js        404, 500 y traducción de los errores de pg
-│   │   │
-│   │   ├── services/
-│   │   │   ├── validacion.js     Validación server-side de todos los campos
-│   │   │   └── crudCatalogo.js   Lógica común de los cinco catálogos
-│   │   │
-│   │   ├── src/modules/          Un directorio por dominio
-│   │   │   ├── auth/             login, registro, logout
-│   │   │   ├── libros/           CRUD + búsqueda + relaciones N:M
-│   │   │   ├── autores/          CRUD + ficha con sus libros
-│   │   │   ├── generos/          CRUD
-│   │   │   ├── categorias/       CRUD
-│   │   │   ├── formatos/         CRUD
-│   │   │   ├── conceptos/        CRUD del catálogo + definición por libro
-│   │   │   ├── imagenes/         subida, portada, texto alternativo, borrado
-│   │   │   ├── usuarios/         CRUD y roles (sólo Administrador)
-│   │   │   └── panel/            resumen e inventario
-│   │   │       └── cada uno: <n>.model.js · <n>.controller.js · <n>.routes.js
-│   │   │
-│   │   ├── views/                30 plantillas EJS
-│   │   │   ├── parciales/        cabeza · barra · aviso · errores · csrf · pie · confirmar · buscador
-│   │   │   └── auth/ libros/ autores/ catalogo/ conceptos/ imagenes/ usuarios/ panel/ errores/
-│   │   │
-│   │   ├── public/
-│   │   │   ├── css/style.css     Hoja de estilos única
-│   │   │   └── js/app.js         JavaScript de interfaz (sólo comodidad)
-│   │   │
-│   │   └── uploads/              Imágenes subidas. Fuera de public/. No se versiona
-│   │
-│   ├── electron-app/             Cliente de escritorio (Electron) que consume el XML
-│   │   ├── main.js               Proceso principal: ventana y descarga del XML
-│   │   ├── preload.js            Puente aislado hacia el renderer
-│   │   └── renderer/             index.html · estilos.css · renderer.js
-│   │
-│   ├── JavaDesktop_app/          Cliente de escritorio JavaFX: REST + JWT, compra, rastreo por WebSocket
-│   │   ├── pom.xml · ejecutar.sh  Maven (JavaFX 21, Jackson) · arranque con JDK 21
-│   │   └── src/main/…            api/ · model/ · cesta/ · rastreo/ · ui/ · resources/mapa/mapa.html
-│   │
-│   └── services/                 Microservicios Python, uno por carpeta
-│       ├── users/                Usuarios y roles, JSON + JWT (Flask, 5003)
-│       ├── authors/              Autores y su relación con libros, JSON + JWT (Flask, 5004)
-│       ├── pedidos/              Pedidos, líneas, stock y estados, JSON + JWT (Flask, 5005)
-│       ├── pagos/                Pagos; actualiza el estado del pedido, JSON + JWT (Flask, 5006)
-│       ├── catalogo/             Catálogo bilingüe XML/JSON (Flask, 5002)
-│       │   ├── app.py            Servicio completo, una sola app Flask sin Blueprints
-│       │   ├── library.xml       Catálogo de ejemplo con la misma estructura
-│       │   └── library.css       Hoja que el navegador aplica al XML
-│       ├── soap/                 Módulo SOAP de clasificación Cloud (Flask, 5001)
-│       │   ├── app.py            Traduce HTTP ↔ SOAP; la lógica está en soap/
-│       │   ├── soap/             envelope · faults · security (WS-Security) · service
-│       │   ├── wsdl/             Contrato library-classifier.wsdl
-│       │   ├── sql/ db/ config/  SQL propio, acceso a datos y ajustes
-│       │   └── docs/ tests/      Documentación técnica, evidencias y pruebas
-│       └── login/                Autenticación (Flask + Psycopg 3, 5000)
-│           ├── app.py            Servicio completo: rutas, SQL, XML/JSON y Swagger
-│           ├── pruebas.py        84 comprobaciones en proceso, sin BD ni Postfix
-│           └── .env.example      Plantilla de configuración (el .env no se versiona)
-│
-├── clients/                      Clientes del servicio SOAP
-│   ├── clasificador_python/      Cliente y GUI en Python
-│   └── clasificador_java/        Cliente y GUI en Java
-│
-├── db/                           Compartida por todas las apps
-│   ├── 00_create_database.sql    Base de datos y roles con privilegios mínimos
-│   ├── 01_schema.sql             Tablas, PK, FK, UNIQUE, CHECK, índices
-│   ├── 02_seed_30_per_table.sql  30 filas por tabla base
-│   ├── 03_all_quieries_...sql    Todas las consultas + 7 pruebas negativas
-│   ├── 04_stored_procedures.sql  5 rutinas almacenadas
-│   ├── 05_triggers.sql           6 disparadores
-│   ├── 06_views.sql              4 vistas
-│   ├── seed_uploads/             30 portadas sintéticas para los datos de prueba
-│   ├── pending/                  SQL escrito, todavía NO ejecutado en la VM
-│   └── applied/                  SQL ya ejecutado en la VM
-│
-├── deploy/
-│   ├── nginx-library.conf        Reverse proxy con NGINX
-│   ├── apache-library.conf       Alternativa con Apache
-│   ├── libreria.service          Unidad de systemd del monolito, con endurecimiento
-│   ├── libreria-catalogo.service Unidad del microservicio de catálogo (5002)
-│   ├── libreria-users.service    Unidad del microservicio de usuarios (5003)
-│   ├── libreria-authors.service  Unidad del microservicio de autores (5004)
-│   ├── libreria-pedidos.service  Unidad del microservicio de pedidos (5005)
-│   ├── libreria-pagos.service    Unidad del microservicio de pagos (5006)
-│   ├── libreria-login.service    Unidad del microservicio de autenticación (5000)
-│   └── libreria-soap.service     Unidad del módulo SOAP de clasificación (5001)
-│
-├── tests/pruebas.sh              60 pruebas ejecutables de la matriz
-├── evidencias/                   Capturas de las entregas
-└── docs/                         ver "Documentación del ejercicio"
-```
-
-No hay workspaces de npm ni herramienta de monorepo: cada app se instala y se
-arranca desde su propia carpeta. Es deliberado — son cuatro procesos
-independientes que sólo comparten la base de datos, no código.
-
----
-
-## Variables de entorno
-
-Se definen en `.env`, que **no se versiona**. `.env.example` documenta los
-nombres, sin valores.
-
-| Variable | Ejemplo | Descripción |
-|---|---|---|
-| `DB_USER` | `libreria_app` | Usuario de PostgreSQL. Privilegios mínimos: no es superusuario |
-| `DB_HOST` | `127.0.0.1` | `localhost` desde la propia VM |
-| `DB_NAME` | `libreria_db` | Nombre de la base de datos |
-| `DB_PASSWORD` | *(sólo en la VM)* | **Nunca** se documenta ni se versiona |
-| `DB_PORT` | `5432` | Puerto de PostgreSQL |
-| `NODE_ENV` | `production` | Activa la caché de plantillas |
-| `APP_HOST` | `127.0.0.1` | Interfaz de escucha. Loopback: Node no se expone a internet |
-| `APP_PORT` | `3000` | Puerto interno |
-| `BASE_PATH` | `/library` | Prefijo público del reverse proxy. Vacío en desarrollo local |
-| `SESSION_SECRET` | *(32+ caracteres)* | Firma la cookie de sesión. Sin él la aplicación no arranca |
-| `COOKIE_SECURE` | `false` | `true` sólo cuando se sirva por HTTPS |
-| `UPLOAD_DIR` | `uploads` | Directorio de las imágenes subidas |
-| `UPLOAD_MAX_BYTES` | `2097152` | Tamaño máximo por imagen (2 MB) |
-
-`BASE_PATH` es lo que permite que el mismo código corra en la raíz durante el
-desarrollo y bajo `/library` en la VM: las plantillas construyen sus enlaces como
-`<%= base %>/libros`.
-
----
-
-## Base de datos
-
-Modelo normalizado hasta **4FN**: 8 entidades y 4 tablas puente.
-
-> **`usuarios.nombre` es redundante a propósito.** El nombre real vive partido
-> en `personas` (nombre, apellido paterno, apellido materno), que es lo que
-> consume el microservicio de autenticación. La columna plana se conserva
-> porque el monolito Node la lee y la escribe, y no se toca; no puede ser
-> `GENERATED` justamente porque el monolito la escribe. Dos disparadores de
-> [`db/05_triggers.sql`](db/05_triggers.sql) mantienen las dos
-> representaciones en sincronía en ambos sentidos.
-
-![Modelo ER](docs/DB_DESIGN_ER_4FN.png)
-
-### Diagrama de relaciones
-
-```
-personas                        autores                 generos
-  id (PK)                         id (PK)                 id (PK)
-  nombre                          nombre       ┐U         nombre (U)
-  apellido_paterno                nacionalidad ┘          descripcion
-  apellido_materno                biografia
-  ▲ los apellidos admiten NULL
-  │                             categorias              formatos
-  │ 1:1                           id (PK)                 id (PK)
-  │                               nombre (U)              nombre (U)
-usuarios                          descripcion             descripcion
-  id (PK)
-  persona_id (U) → personas(id)   ← UNIQUE: una persona, una cuenta
-  nombre                          ← copia derivada, la mantiene un trigger
-  email (U)
-  password_hash  ← bcrypt
-  rol            ← lector | admin
-  activo
-  creado_en
-  ▲ índice único parcial
-    WHERE rol='admin'
-    → como máximo UN admin
-
-libros
-  id (PK)
-  isbn (U)                    ← CHECK formato ISBN-10/13
-  titulo
-  anio_publicacion            ← CHECK entre 1450 y 2100
-  sinopsis
-  precio                      ← CHECK >= 0
-  stock                       ← CHECK >= 0
-  categoria_id  → categorias(id)  ON DELETE RESTRICT
-  formato_id    → formatos(id)    ON DELETE RESTRICT
-  creado_en · actualizado_en  ← sello automático por trigger
-
-libros_autores                     libros_generos
-  libro_id  → libros    CASCADE      libro_id  → libros   CASCADE
-  autor_id  → autores   RESTRICT     genero_id → generos  RESTRICT
-  orden          ← posición en portada
-  PK (libro_id, autor_id)            PK (libro_id, genero_id)
-
-conceptos                          libros_conceptos
-  id (PK)                            libro_id    → libros    CASCADE
-  termino (U)                        concepto_id → conceptos RESTRICT
-  ← sólo el término:                 definicion   ← propia de ESTE libro
-    la definición cambia             capitulo · pagina
-    según el libro                   PK (libro_id, concepto_id)
-
-imagenes_libros
-  id (PK)
-  libro_id           → libros(id)  ON DELETE CASCADE
-  nombre_archivo (U) ← UUID + extensión, generado por el servidor
-  nombre_original    ← sólo metadato; nunca toca el sistema de archivos
-  tipo_mime          ← CHECK: jpeg | png | webp
-  tamano_bytes       ← CHECK: > 0 y <= 2 MB
-  texto_alternativo  ← accesibilidad
-  es_portada         ← índice único parcial: una sola portada por libro
-
-
-──────────────── Pedidos y pagos (apps/services/pedidos y pagos) ────────
-Aplicado en la VM el 2026-10-04: db/applied/20261004-pedidos-pagos.sql.
-Normalizadas hasta 4FN: catálogos con FK, sin total almacenado (lo calcula la
-vista v_pedidos_total) y el historial de estados aparte de las líneas.
-
-estados_pedido · estados_pago · metodos_pago
-  id (PK) · nombre (U)
-
-pedidos
-  id (PK)
-  usuario_id → usuarios(id)         RESTRICT  ← se desactiva, no se borra
-  estado_id  → estados_pedido(id)   RESTRICT
-  creado_en
-
-pedidos_lineas
-  pedido_id → pedidos   CASCADE
-  libro_id  → libros    RESTRICT
-  cantidad         ← CHECK > 0
-  precio_unitario  ← precio pactado al comprar (histórico)
-  PK (pedido_id, libro_id)
-
-pedidos_estados_historial          ← hecho multivaluado aparte (4FN)
-  pedido_id → pedidos CASCADE · estado_id → estados_pedido
-  cambiado_en · cambiado_por → usuarios SET NULL
-  PK (pedido_id, cambiado_en)      ← lo llena trg_pedido_historial
-
-pagos
-  id (PK)
-  pedido_id      → pedidos(id)      RESTRICT
-  metodo_pago_id → metodos_pago(id) RESTRICT
-  estado_pago_id → estados_pago(id) RESTRICT
-  monto          ← CHECK > 0
-  referencia (U) · creado_en
-
-
-──────────────── Tablas del módulo SOAP (apps/services/soap) ────────
-Las crea sql/soap_module.sql, NO db/01_schema.sql. No modifican ninguna tabla
-del monolito: sólo la referencian por clave foránea.
-
-clasificadores                     clientes_servidos
-  id (PK)                            id (PK)
-  nombre · apellidos                 tipo_cliente  ┐U
-  correo (U)   ← CHECK formato       identificador ┘
-  creado_en                          peticiones_atendidas ← CHECK >= 0
-  ← identidad del cliente SOAP;      primera_peticion · ultima_peticion
-    NO reutiliza usuarios
-
-clasificaciones_cloud
-  id (PK)
-  clasificador_id     → clasificadores(id)      ON DELETE RESTRICT
-  (libro_id, concepto_id)
-                      → libros_conceptos(libro_id, concepto_id)  CASCADE
-                        ← FK COMPUESTA: obliga a que el concepto esté
-                          DEFINIDO en ese libro, no sólo a que ambos existan.
-                          CASCADE y no RESTRICT: con RESTRICT el módulo le
-                          impedía al monolito borrar un libro clasificado
-  modelo              ← CHECK: IaaS | PaaS | SaaS | FaaS
-  cliente_servido_id  → clientes_servidos(id)   ON DELETE SET NULL
-  clasificado_en
-  U (clasificador_id, concepto_id) ← el mismo clasificador no registra
-                                     dos veces el mismo concepto → Fault 409
-```
-
-### Por qué cuatro tablas puente
-
-Autores, géneros, conceptos e imágenes son cuatro dependencias multivaluadas
-**independientes** sobre libro. Juntar dos de ellas en una sola relación produce
-su producto cartesiano: un libro con 3 autores y 2 géneros necesitaría 6 filas
-para expresar 5 datos, y 4 de esas filas afirmarían combinaciones que nadie
-capturó. Eso es exactamente lo que 4FN prohíbe.
-
-El proceso completo, paso a paso desde la relación no normalizada, está en
-[docs/NORMALIZATION_4FN.xlsx](docs/NORMALIZATION_4FN.xlsx).
-
-### Objetos de base de datos
-
-| Tipo | Nombre | Para qué |
-|---|---|---|
-| Procedimiento | `sp_guardar_libro` | Libro + autores + géneros en una transacción |
-| Procedimiento | `sp_guardar_concepto_libro` | Crea o reutiliza el término y guarda la definición del libro |
-| Procedimiento | `sp_ajustar_stock` | Ajuste atómico, sin condición de carrera |
-| Procedimiento | `sp_marcar_portada` | Marca la portada; el trigger apaga la anterior |
-| Función | `fn_buscar_libros` | Búsqueda por ISBN, título o autor |
-| Trigger | `trg_un_solo_admin` | Mensaje legible al intentar un segundo Administrador |
-| Trigger | `trg_conservar_admin` | Impide dejar el sistema sin Administrador |
-| Trigger | `trg_portada_unica` | Apaga la portada anterior al marcar otra |
-| Trigger | `trg_promover_portada` | Asciende otra imagen si se borra la portada |
-| Trigger | `trg_libros_actualizado` | Sello de última modificación |
-| Trigger | `trg_normalizar_email` | Correo en minúsculas y sin espacios |
-| Vista | `v_libros_detalle` | Libro con autores, géneros, conteos y portada resueltos |
-| Vista | `v_catalogo` | Proyección para el lector: sin el stock exacto |
-| Vista | `v_libros_conceptos` | Glosario aplanado libro–término–definición |
-| Vista | `v_inventario_por_categoria` | Resumen para el panel |
-
-Objetos del **módulo SOAP**, definidos en
-[`apps/services/soap/sql/soap_module.sql`](apps/services/soap/sql/soap_module.sql):
-
-| Tipo | Nombre | Para qué |
-|---|---|---|
-| Función | `fn_registrar_clasificacion` | Clasificador, contador y registro en una transacción |
-| Vista | `v_conceptos_clasificables` | Conceptos por libro, con ISBN y categoría |
-| Vista | `v_conceptos_pendientes` | Los que nadie ha clasificado todavía |
-| Vista | `v_progreso_clasificadores` | Totales clasificados y pendientes por clasificador |
-| Vista | `v_estadisticas_modelo` | Conteo por modelo Cloud |
-| Rol | `libreria_soap` | Mínimo privilegio: lectura por columna, sin `DELETE`, sin acceso a `usuarios` |
-
----
-
-## Flujo de cambios en la base de datos
-
-La base de datos vive en la VM de GCP y **la aplicación nunca modifica el esquema
-por su cuenta**. Todo SQL que haya que correr se escribe primero en un archivo
-dentro de `db/pending/` y espera ahí hasta que se ejecuta a mano en la VM.
-
-| Carpeta | Contenido |
+| Pregunta del curso | Dónde se responde |
 |---|---|
-| `db/00…06_*.sql` | Los scripts canónicos del esquema. Reconstruyen la base desde cero |
-| `db/pending/` | Cambios escritos, **todavía no ejecutados** en la VM |
-| `db/applied/` | Cambios que **ya se ejecutaron**. Es historial: no se editan ni se vuelven a correr |
+| ¿Cómo se ve un monolito MVC bien organizado? | `apps/web-monolito/` |
+| ¿Qué cambia al partirlo en servicios con JWT? | `apps/services/{login,users,authors,pedidos,pagos}` |
+| ¿Cómo convive un contrato SOAP/WSDL con REST? | `apps/services/soap/` + `clients/` |
+| ¿Un mismo servicio puede hablar XML y JSON? | `apps/services/catalogo/` |
+| ¿Cómo se empuja información en tiempo real? | `gps/` (WebSocket) |
+| ¿Qué aporta una caché y un almacén de sesiones? | Redis en los seis servicios Flask |
+| ¿Cuál rinde mejor bajo carga? | `locust_tests/` y `docs/benchmark_proxy/` |
 
-### Regla
+---
 
-> Si un cambio toca la base de datos —tabla nueva, columna, índice, `ALTER`,
-> corrección de datos—, el `.sql` correspondiente se crea en `db/pending/`. Nada
-> se mueve a `db/applied/` hasta confirmar que la consulta corrió sin error.
+## Arquitectura del sistema
 
-### Nombre de los archivos
-
-`YYYYMMDD-descripcion-corta.sql`, para que el orden de ejecución sea evidente.
-Cada archivo empieza con un comentario que explica **qué hace y por qué**.
-
-### Nunca credenciales en claro
-
-> **Ninguna credencial se escribe en claro en el repositorio.** Ni contraseñas,
-> ni tokens, ni claves de API — en código, documentación, archivos `.sql`, y
-> **tampoco en los comentarios**.
-
-En un `.sql` que cambie una contraseña va el hash y nada más. El comentario dice
-qué hace la consulta, nunca cuál es el valor:
-
-```sql
--- MAL: publica la credencial aunque el UPDATE sólo lleve el hash
--- Cambia la contraseña de admin@ejemplo.com a "…".
-
--- BIEN
--- Cambia la contraseña de admin@ejemplo.com. Hash bcrypt (coste 10), el mismo
--- factor que usa auth.model.js. El valor se comunica fuera del repositorio.
+```
+                         Internet  (IP pública 34.51.108.167, sin dominio)
+                                   │
+                  ┌────────────────┴─────────────────┐
+                  │  Apache httpd  :80 / :443 (TLS)  │  VirtualHost por IP
+                  │  (comparte la VM con otro proyecto)│  TLS 1.2/1.3, cert. autofirmado
+                  └───────┬──────────────────┬───────┘
+                 :80 → 127.0.0.1:8009   :443 → 127.0.0.1:8443
+                  ┌───────▼───────┐   ┌──────▼──────────────────────────────┐
+                  │ nginx (sitio) │   │ nginx (API): enrutamiento por ruta, │
+                  │ /library →    │   │ auth_request para /soap, WebSocket, │
+                  │ estáticos     │   │ portadas, /health y /metrics        │
+                  └───────┬───────┘   └──┬───┬───┬───┬───┬───┬───┬───┬─────┘
+                          │              │   │   │   │   │   │   │   │
+                 Monolito Node :3000   login users authors pedidos pagos catálogo soap  gps
+                 (Express + EJS)       5000  5003  5004   5005   5006   5002   5001  5900
+                          │              └───┴───┴──┬┴───┴───┴───┘      │      │
+                          │                        Redis (127.0.0.1:6379)│      │
+                          └─────────────────┬─────────────────────────────┴──────┘
+                                     PostgreSQL (localhost) — libreria_db
 ```
 
-Borrar el archivo después **no deshace nada**: el repositorio es público y el
-historial de git conserva cada versión. Lo único que resuelve una credencial
-publicada es **rotarla**. Ver [SECURITY_REVIEW.md](docs/SECURITY_REVIEW.md) H-01.
-
-### Ciclo completo
-
-1. **Escribir** el `.sql` en `db/pending/`.
-2. **Ejecutar** en la VM, en orden de fecha.
-3. **Mover** a `db/applied/` con `git mv` en cuanto se confirme que corrió.
-4. **Actualizar `db/01_schema.sql`** para que refleje el estado final.
-5. **Actualizar el [diagrama de relaciones](#diagrama-de-relaciones)** de este README.
-6. **Un solo commit** con las tres cosas.
-
-Los pasos 4 y 5 no son opcionales: nada valida el esquema documentado contra la
-VM, así que si se saltan, la documentación empieza a describir una base de datos
-que ya no existe.
+- **Una sola base de datos, procesos independientes.** Cada app y cada servicio
+  tiene sus dependencias, su `.env` y su unidad de systemd; no comparten código,
+  sólo la base. Si uno cae, los demás siguen.
+- **Nada escucha directo en internet salvo Apache.** nginx, el monolito,
+  PostgreSQL y Redis están en loopback; los servicios se alcanzan por nginx.
+- **Tres puertas de entrada:** el navegador (monolito, `/library`), las apps de
+  escritorio por HTTPS (API en `/`), y los clientes SOAP.
 
 ---
 
-## Rutas
+## El monolito
 
-Todas las rutas cuelgan de `BASE_PATH` (`/library` en la VM, vacío en local).
+`apps/web-monolito/` — **Node.js + Express + EJS + PostgreSQL**, renderizado en el
+servidor, puerto 3000 (publicado como `http://<IP>/library`).
 
-### Autenticación — público
+Es la aplicación principal de administración y consulta del catálogo. Una sola
+unidad desplegable organizada por **módulos de dominio**, cada uno con tres
+archivos: `*.model.js` (todo el SQL, parametrizado), `*.controller.js` (valida,
+orquesta y elige la vista) y `*.routes.js` (método + URL → controller con su
+middleware). Las vistas viven en `views/<módulo>/`.
 
-| Método | Ruta | Descripción |
-|---|---|---|
-| GET | `/` | Redirige a `/libros` o `/login` |
-| GET · POST | `/login` | Formulario y validación de credenciales |
-| GET · POST | `/registro` | Alta de cuenta. Siempre con rol `lector` |
-| GET | `/logout` | Destruye la sesión |
-
-### Libros — consulta `requireLogin`, gestión `requireAdmin`
-
-| Método | Ruta | Acceso | Descripción |
-|---|---|---|---|
-| GET | `/libros` · `/libros?q=…` | login | Catálogo (lector) o tabla de gestión (admin), con búsqueda |
-| GET | `/libros/:id` | login | Detalle con autores, géneros, imágenes y conceptos |
-| GET · POST | `/libros/nuevo` · `/libros` | admin | Alta |
-| GET · POST | `/libros/:id/editar` | admin | Edición |
-| POST | `/libros/:id/stock` | admin | Ajuste de existencias |
-| POST | `/libros/:id/eliminar` | admin | Borrado (cascade a imágenes y conceptos) |
-
-### Catálogos — `requireAdmin`
-
-`/autores`, `/generos`, `/categorias`, `/formatos` y `/conceptos` comparten el
-mismo mapa: `GET /`, `GET /nuevo`, `POST /`, `GET /:id/editar`,
-`POST /:id/editar`, `POST /:id/eliminar`.
-
-`GET /autores/:id` y `GET /conceptos/:id` son fichas de consulta y admiten
-cualquier usuario registrado.
-
-### Conceptos dentro de un libro — `requireAdmin`
-
-| Método | Ruta | Descripción |
-|---|---|---|
-| GET | `/conceptos/libro/:libro_id/nuevo` | Formulario (con `?concepto_id=` para editar) |
-| POST | `/conceptos/libro/:libro_id` | Guarda término + definición del libro |
-| POST | `/conceptos/libro/:libro_id/:concepto_id/quitar` | Retira la definición; el término sigue en el catálogo |
-
-### Imágenes y administración — `requireAdmin`
-
-| Método | Ruta | Descripción |
-|---|---|---|
-| GET · POST | `/imagenes/nuevo/:libro_id` · `/imagenes/:libro_id` | Subida con validación |
-| POST | `/imagenes/:id/portada` · `/:id/alt` · `/:id/eliminar` | Portada, texto alternativo, borrado |
-| — | `/usuarios/*` | CRUD de usuarios y roles |
-| GET | `/panel` | Conteos, inventario y libros incompletos |
-
----
-
-## Roles y autorización
-
-| Rol | Puede | Se le rechaza |
-|---|---|---|
-| **Visitante** (sin sesión) | `/login`, `/registro` | Todo lo demás → redirige a `/login` |
-| **`lector`** | Catálogo, detalle, búsqueda, fichas de autor y concepto | Toda ruta de gestión → **403 con página explicativa** |
-| **`admin`** | Todo lo anterior + CRUD completo, panel y usuarios | Crear un segundo Administrador; quitarse el rol o borrarse a sí mismo |
-
-La restricción se aplica en dos capas, y **sólo una de ellas protege**:
-
-1. **Rutas.** Cada `*.routes.js` protege las operaciones de gestión con
-   `requireAdmin`. Esto es lo que realmente impide el acceso.
-2. **Interfaz.** `views/parciales/barra.ejs` no dibuja los enlaces de gestión
-   para un lector, y las vistas ocultan los botones. Esto es **comodidad
-   visual**, no protección: la prueba PR-14 envía el `POST` de borrado
-   directamente y se rechaza igual.
-
-**Un solo Administrador.** Impuesto en la base de datos con el índice único
-parcial `ux_usuarios_admin_unico`, no en el código: comprobarlo en el controller
-sería una condición de carrera. El trigger `trg_un_solo_admin` sólo mejora el
-mensaje de error.
-
----
-
-## Subida de imágenes
-
-Gestionada por `middleware/subidas.js`. Cinco capas de validación:
-
-| Control | Qué impide |
+| Funcionalidad | Quién |
 |---|---|
-| Lista blanca de MIME (`image/jpeg`, `image/png`, `image/webp`) | Tipos no soportados |
-| Lista blanca de extensión | Nombres con extensión ejecutable |
-| Límite de 2 MB en Multer y en la base de datos | Llenar el disco de la VM |
-| **Verificación de la firma binaria** del archivo escrito | Un `.php` renombrado a `.png` con MIME falseado |
-| Nombre generado por el servidor: UUID + extensión | `../` y dobles extensiones |
+| Catálogo, detalle, búsqueda, fichas de autor y concepto | `lector` y `admin` |
+| CRUD de libros, autores, géneros, categorías, formatos, conceptos | `admin` |
+| Subida de portadas (validación en cinco capas) | `admin` |
+| Gestión de usuarios (un solo administrador, impuesto en la BD) | `admin` |
 
-Si cualquier comprobación falla, el archivo se borra del disco. `uploads/` está
-**fuera** de `public/` y se sirve con `nosniff` y `Content-Disposition: inline`;
-el reverse proxy además niega servir extensiones ejecutables desde ahí.
+Sin JSON entre navegador y servidor (no existe `express.json()` a propósito):
+formularios HTML, sesión por cookie y token CSRF.
 
-El texto alternativo es obligatorio. Una imagen puede marcarse como portada; el
-trigger `trg_portada_unica` apaga la anterior automáticamente.
+```bash
+cd apps/web-monolito && npm install && npm start   # → http://127.0.0.1:3000
+```
 
 ---
 
-## Pruebas
+## Microservicios
 
-```bash
-# Aplicación: 60 casos de la matriz. Desde la raíz del repositorio.
-BASE_URL=http://127.0.0.1:3000 \
-ADMIN_EMAIL='admin@libreria.com' ADMIN_PASS='…' \
-LECTOR_EMAIL='ana.ruiz@libreria.udem.mx' LECTOR_PASS='…' \
-bash tests/pruebas.sh
+Ocho procesos en `apps/services/` y `gps/`. Los seis Flask comparten el mismo
+bloque base **copiado** (no importado): JWT, CORS, manejo de errores, Redis y
+métricas.
 
-# Base de datos: consultas + 7 pruebas negativas de integridad
-psql -U libreria_owner -d libreria_db -f db/03_all_quieries_before_stored_procedures.sql
+| Servicio | Puerto | Tecnología | Formato | Rutas públicas (vía nginx) | Responsabilidad |
+|---|---|---|---|---|---|
+| **login** | 5000 | Flask + psycopg + Redis | JSON / XML | `/login` `/register` `/logout` `/session` `/token/refresh` | Autenticación: emite el JWT (HS256, 20 min) y el refresh token de un solo uso; verifica el correo contra Postfix |
+| **soap** | 5001 | Flask + SOAP 1.1 a mano | XML / WSDL | `/soap` `/wsdl/library-classifier.wsdl` | Clasifica conceptos en IaaS/PaaS/SaaS/FaaS. WS-Security UsernameToken |
+| **catalogo** | 5002 | Flask + psycopg + Redis | XML **y** JSON | `/books` `/concepts` | Catálogo bilingüe con caché de 60 s; escrituras sólo con JWT de admin |
+| **users** | 5003 | Flask + psycopg3 | JSON | `/users` | Cuentas; un lector sólo ve la suya; baja lógica |
+| **authors** | 5004 | Flask + psycopg3 | JSON | `/authors` | Autores; lectura pública, escritura de admin |
+| **pedidos** | 5005 | Flask + psycopg3 | JSON | `/orders` | Pedidos y líneas; ajusta stock con `sp_ajustar_stock` en la misma transacción |
+| **pagos** | 5006 | Flask + psycopg3 | JSON | `/payments` | Pagos simulados del dueño del pedido; reembolsos, nunca borrado |
+| **gps** | 5900 | Flask + flask-sock | WebSocket | `/track/ws?code=LIB-MTY-…` | Rastreo en tiempo real de la entrega de cada pedido; delega la autorización a pedidos |
+
+Además, `/health/<servicio>` (semáforos de los clientes) y `/metrics/<servicio>`
+(JWT de admin) se publican por nginx para los seis servicios Flask.
+
+**Flujo típico de compra (app de escritorio):**
+
 ```
-
-> **`BASE_URL` lleva el prefijo público.** El script concatena
-> `"$BASE_URL/login"` y no sabe nada de `BASE_PATH`, así que en la VM —donde la
-> aplicación publica bajo `/library`— va `http://127.0.0.1:3000/library`. En
-> local, sin `BASE_PATH`, va sin sufijo. Si se olvida, todo da 404 y después
-> 403: el script no alcanza a leer el token CSRF de la página de login y manda
-> los POST sin él. Parece un fallo de seguridad y es una URL mal armada.
-
-Las credenciales se pasan por variable de entorno; no están escritas en ningún
-archivo. Para no dejarlas en `~/.bash_history`, léelas con
-`read -sp "admin pass: " A_PASS`. El lector de los datos de siembra es
-`ana.ruiz@libreria.udem.mx`; si no recuerdas su contraseña, cámbiala desde
-`/usuarios` como Administrador.
-
-Varias corridas fallidas seguidas acaban en **429**: es el limitador de intentos
-de `auth.controller.js`, con ventana de 15 minutos. Vive en memoria del proceso,
-así que `sudo systemctl restart libreria` lo borra. La matriz completa, con cobertura por requisito, está en
-[docs/TEST_PLAN.md](docs/TEST_PLAN.md).
+POST /login ─► JWT + refresh        GET /books ─► catálogo (caché Redis)
+POST /orders ─► pedido + stock      POST /payments ─► pago simulado
+wss /track/ws?code=LIB-MTY-2026-000123 ─► posición del repartidor cada segundo
+POST /token/refresh (antes de los 20 min)   POST /logout ─► jti revocado
+```
 
 ---
 
-## Despliegue
+## Aplicaciones cliente
 
-Node escucha en `127.0.0.1:3000` y **no se expone a internet**. La cara pública
-es Apache o NGINX bajo el prefijo `/library`.
+| App | Carpeta | Tecnología | Qué consume | Para qué |
+|---|---|---|---|---|
+| **Navegador** | — | HTML renderizado por EJS | Monolito `/library` | Administración y consulta del catálogo |
+| **Electron** | `apps/electron-app/` | Electron, sin dependencias de UI | Catálogo **sólo en XML** | Vitrina del catálogo en tarjetas Material Design, 6 por página |
+| **Tkinter** | `apps/services/soap/cliente/` | Python + `ttk` | Toda la API por HTTPS + SOAP | Tienda: catálogo con portadas, carrito, compra; paneles CRUD según rol; semáforos de salud |
+| **JavaFX** | `apps/JavaDesktop_app/` | Java 21 + JavaFX + Maven | REST + JWT, SOAP, WebSocket | Tienda completa y rastreo del pedido en un mapa Leaflet de Monterrey |
+| **Clientes SOAP** | `clients/` | Java y Python | Servicio SOAP (WSDL) | Interoperabilidad del contrato en dos lenguajes |
+| **Simulador GPS** | `gps/GPSapp/` | Python | WebSocket `role=gps` | Vehículos que siguen calles reales (OSRM) |
 
-```bash
-sudo cp deploy/nginx-library.conf /etc/nginx/conf.d/library.conf
-sudo nginx -t && sudo systemctl reload nginx
-sudo setsebool -P httpd_can_network_connect 1     # SELinux, o el proxy da 503
+Ninguna app de escritorio toca PostgreSQL: todo pasa por los servicios. Las que
+usan HTTPS verifican el certificado autofirmado con una copia local (`CA_CERT`);
+la verificación nunca se desactiva.
 
-sudo cp deploy/libreria.service /etc/systemd/system/
-sudo systemctl daemon-reload && sudo systemctl enable --now libreria
-```
+---
 
-Comprobación de que sólo el proxy está publicado:
+## Datos compartidos: PostgreSQL y Redis
 
-```bash
-curl -I http://IP_DEL_SERVIDOR/library/login      # 200
-curl -I --max-time 5 http://IP_DEL_SERVIDOR:3000/ # debe fallar
-```
+**PostgreSQL** (`libreria_db`, sólo `localhost`) es la fuente de verdad, normalizada
+hasta **4FN**: libros, personas/autores, géneros, categorías, formatos, imágenes,
+conceptos, usuarios, pedidos, líneas, historial de estados y pagos. Integridad en
+la propia base: claves foráneas, `CHECK`, índices únicos parciales (un solo admin,
+una sola portada), triggers, procedimientos (`sp_ajustar_stock`) y vistas
+(`v_libros_detalle`, `v_pedidos_total`; el total de un pedido es derivado, no
+columna). Scripts canónicos en `db/00…06_*.sql`; los cambios se escriben en
+`db/pending/` y pasan a `db/applied/` cuando se ejecutan en la VM.
 
-> **Esa segunda comprobación hoy NO falla.** En el proyecto de GCP existe una
-> regla `allow-3000` que abre `tcp:3000` a `0.0.0.0/0` sin etiqueta de red, así
-> que el monolito es alcanzable directo, saltándose el proxy. Está pendiente de
-> borrar; hasta entonces, este párrafo describe la intención, no la realidad.
+**Redis** es una capa auxiliar compartida por los seis servicios Flask:
 
-Los comandos completos están en [docs/GCP_COMMANDS.md](docs/GCP_COMMANDS.md).
+| Uso | Clave | TTL |
+|---|---|---|
+| Sesión de login | `session:<sid>` | 8 h |
+| Refresh token (sólo su hash, un solo uso) | `refresh:<sha256>` | 8 h |
+| Lista de JWT revocados | `jwt:revoked:<jti>` | lo que le queda al token |
+| Limitador de login | `ratelimit:login:<ip>:<correo>` | 15 min |
+| Caché del catálogo | `books:list:<filtros>` · `books:<isbn>` | 60 s |
+| Métricas entre workers | `metrics:<servicio>:*` | — |
 
-### Los cuatro servicios de la VM
+---
 
-Son cuatro aplicaciones independientes, cada una con su unidad de systemd, su
-propio `.env` y su propio rol de PostgreSQL. Si una se cae, las otras siguen.
+## Seguridad
 
-| Servicio | Unidad | Puerto | Expuesto a internet |
-|---|---|---|---|
-| Monolito Node (Express + EJS) | `libreria.service` | 3000 | No por diseño: sólo por el proxy, bajo `/library` |
-| Microservicio de autenticación | `libreria-login.service` | 5000 | Sí |
-| Módulo SOAP de clasificación | `libreria-soap.service` | 5001 | No: túnel SSH, ver [clients/README.md](clients/README.md) |
-| Microservicio de catálogo (XML/JSON) | `libreria-catalogo.service` | 5002 | Sí: lo consume el cliente Electron |
+La seguridad se aplica **en capas**: si una falla, la siguiente sigue protegiendo.
+Detalle de cada control con su amenaza y su evidencia en
+[docs/SECURITY_REVIEW.md](docs/SECURITY_REVIEW.md).
 
-**El baile de puertos, y por qué el catálogo es el que siempre cede.** El
-módulo SOAP tiene el 5001 escrito en el `soap:address` de su WSDL, en sus
-evidencias ya capturadas y en sus dos clientes Java y Python. El microservicio
-de autenticación tiene el 5000 en su enunciado y no tiene de dónde moverse. El
-catálogo es el único de los tres cuyo puerto **no está escrito en ningún
-contrato**: al cliente Electron se le indica IP y puerto desde su propio popup
-de configuración. Por eso se mudó primero del 5001 al 5000, y ahora del 5000 al
-5002. **Al demostrar el Electron hay que escribirle el puerto 5002 en ese
-popup**, o pedirá el catálogo a quien no es.
+### 1. Red y perímetro
 
-**Cada servicio Python con su propio `.env`, en su propio directorio.** No los
-compartas ni los enlaces: el segundo en arrancar moriría con *Address already
-in use* o, peor porque no se nota, respondería lo que no es.
-
-### Microservicios Users, Authors, Pedidos y Pagos (JWT)
-
-Cuatro servicios Flask más, del ejercicio guiado de servicios, con la misma
-estructura que login (un `.env` y una unidad por servicio, rol `libreria_app`).
-Sólo hablan JSON.
-
-| Servicio | Unidad | Puerto | Quién escribe |
-|---|---|---|---|
-| Users | `libreria-users.service` | 5003 | Admin sobre cualquiera; un lector, sólo su cuenta. Baja lógica |
-| Authors | `libreria-authors.service` | 5004 | Admin. Los GET son públicos |
-| Pedidos | `libreria-pedidos.service` | 5005 | Cualquier usuario autenticado sobre lo suyo; estados, sólo admin |
-| Pagos | `libreria-pagos.service` | 5006 | Dueño del pedido o admin. Pagos simulados |
-
-**JWT.** `/login` (5000) lo emite con HS256, **20 minutos** y los claims
-`user_id` y `role_id` (admin = 1, lector = 2; la base sigue guardando el rol como
-texto) más un `jti` único. Se renueva antes de caducar con `POST /token/refresh`
-y el `refresh_token` (de un solo uso) que entrega `/login`. Cada servicio
-verifica firma,
-algoritmo (fijo, nunca el del token), expiración, emisor y claims **antes** de
-tocar datos: **401** sin token o inválido, **403** con rol insuficiente. Las
-lecturas administrativas (usuarios, pedidos, pagos) también exigen JWT; sólo el
-catálogo de autores es público.
-
-**Secreto.** `JWT_SECRET_KEY`, el mismo valor en el `.env` de login y de los
-cuatro servicios (login y catálogo aceptan además el nombre antiguo
-`JWT_SECRET`). Nunca en el código; sin él el servicio no arranca. **CORS:**
-`CORS_ORIGENES` lista los orígenes de los clientes; vacío = ninguno, nunca `*`.
-Los logs no llevan contraseñas ni tokens y los errores no llevan SQL.
-
-**HTTPS.** `deploy/nginx-api-tls.conf` termina TLS en el 443 y reenvía a los
-servicios por loopback (`/login`, `/users`, `/authors`, `/orders`, `/payments`).
-Sin dominio el certificado es **autofirmado**: cifra, pero `curl` necesita
-`--cacert` y el navegador avisa. Con un dominio bastaría Let's Encrypt.
-
-**Límites conocidos.** El rol viaja en el token, así que un cambio de rol o una
-baja tarda hasta 20 minutos en notarse en los servicios (el refresh sí vuelve a
-consultar la base). Los puertos 5003 a 5006 siguen hablando HTTP por su cuenta;
-por eso, tras activar el 443, se cierran hacia fuera.
-
-**Base de datos.** Pedidos y Pagos necesitan las tablas de
-`db/applied/20261004-pedidos-pagos.sql` (normalizadas hasta 4FN). Ya aplicado en la VM (2026-10-04).
-
-Despliegue de cada uno (cambiar `users` por el servicio que toque):
-
-```bash
-cd /opt/udem/libreria/apps/services/users
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-cp .env.example .env && chmod 600 .env     # DB_PASSWORD, JWT_SECRET_KEY, CORS_ORIGENES
-sudo restorecon -Rv /opt/udem/libreria/apps/services/users
-sudo cp /opt/udem/libreria/deploy/libreria-users.service /etc/systemd/system/
-sudo systemctl daemon-reload && sudo systemctl enable --now libreria-users
-```
-
-Pruebas: `python3 pruebas.py` en cada carpeta (seguridad, sin base de datos) y
-`tests/pruebas_servicios.py` contra la VM (flujo completo).
-
-### Redis: sesiones, revocación y caché
-
-Redis es una capa **compartida y auxiliar**: PostgreSQL sigue siendo la fuente de
-datos y nada que viva en Redis es irrecuperable (perderlo cierra las sesiones
-abiertas, nada más). Los seis servicios (login, catálogo, users, authors,
-pedidos, pagos) se conectan con **la misma `REDIS_URL`**
-(`redis://:contraseña@127.0.0.1:6379/0`, contraseña sólo en el `.env` de la VM; en
-los logs se enmascara).
-
-| Clave | Quién la escribe | Contenido | TTL |
-|---|---|---|---|
-| `session:<sid>` | login | usuario, rol, `jti` vigente, hash del refresh | `SESION_TTL_HORAS` (8 h) |
-| `refresh:<sha256>` | login | usuario y `sid` (el refresh en claro **nunca** se guarda) | igual que la sesión |
-| `jwt:revoked:<jti>` | login (`/logout`, `/token/refresh`) | marca de revocado | lo que le queda al JWT (≤ 20 min) |
-| `ratelimit:login:<ip>:<correo>` | login | intentos fallidos (5 / 15 min → 429) | 15 min |
-| `books:list:<filtros>` · `books:<isbn>` | catálogo | lectura cacheada | `CACHE_TTL_SEGUNDOS` (60 s) |
-| `metrics:<servicio>:<contador>` | todos | contadores compartidos entre workers | sin TTL |
-
-**Cómo se usa.** `/login` abre `session:<sid>` y entrega JWT (20 min) +
-`refresh_token`. El refresh se **rota**: cada `/token/refresh` entrega uno nuevo
-y revoca el JWT anterior; uno usado se rechaza. `/logout` pone el `jti` en
-`jwt:revoked:<jti>` y borra sesión y refresh. **Cada servicio comprueba
-`jwt:revoked:<jti>` antes de aceptar un JWT.** El catálogo cachea `GET /books` y
-`GET /books/<isbn>` (cabecera `X-Cache: HIT|MISS`) y borra `books:*` tras
-cualquier POST/PUT/PATCH/DELETE; `authors` y `pedidos` también lo hacen al escribir,
-porque cambian lo que el catálogo muestra (autores, stock).
-
-**Si Redis cae** (decisión de diseño, la que pide el ejercicio):
-
-| Operación | Comportamiento |
+| Control | Detalle |
 |---|---|
-| Login, refresh, logout, `/session` | **503** (falla cerrado): sin dónde guardar o borrar la sesión no se finge nada |
-| Cualquier ruta con JWT (escrituras, lecturas administrativas) | **503**: no se puede comprobar la revocación, no se acepta "por si acaso" |
-| Sin token | 401, como siempre |
-| `GET /books` y `GET /books/<isbn>` | **200 desde PostgreSQL** (falla abierto), se cuenta el error |
-| `/health` | sigue en 200 y marca `redis: caido` → semáforo **amarillo** |
+| Un solo punto expuesto | Sólo Apache (80/443) escucha en la IP pública; nginx, Node, PostgreSQL y Redis escuchan en `127.0.0.1` |
+| TLS | Apache termina TLS 1.2/1.3 con un certificado autofirmado para la IP; los clientes lo verifican con `--cacert` / `CA_CERT` |
+| Lista blanca de rutas | nginx sólo reenvía las rutas de la API, las portadas (`uuid` + extensión de imagen) y `/health`/`/metrics`; todo lo demás es **404** |
+| Doble firewall | Regla de GCP **y** `firewalld` en la VM; el puerto 25 nunca se abre (Postfix sólo en loopback) |
+| Proxy sin huella | `server_tokens off`, `ServerSignature Off`, cuerpo máximo 1–3 MB en nginx |
 
-**Métricas.** `GET /metrics` (JWT de admin) en cada servicio (por nginx:
-`/metrics/<servicio>`): estado de Redis y los
-contadores (`cache_aciertos`, `cache_fallos`, `invalidaciones_catalogo`,
-`revocaciones_consultadas`, `tokens_revocados_rechazados`, `login_correctos`,
-`login_bloqueados`, `refresh_correctos`, `refresh_rechazados`, `logout`,
-`cache_errores`…). Los JWT emitidos antes de activar Redis no llevan `jti` y
-dejan de valer: caducan en 20 min.
+### 2. Autenticación
 
-**Pruebas.** `python3 pruebas.py` en cada servicio (con un Redis falso en memoria,
-sin red) y `tests/pruebas_redis.py` contra la VM; con Redis parado, la misma
-prueba con `REDIS_CAIDO=1` comprueba la falla segura. Ajustes de Redis:
-[deploy/redis-hardening.conf.example](deploy/redis-hardening.conf.example).
+| Control | Detalle |
+|---|---|
+| Contraseñas | **bcrypt** (coste 10) en monolito y login, compatibles entre sí; la BD rechaza todo hash que no sea bcrypt (`ck_usuarios_hash_bcrypt`) |
+| Sin enumeración de usuarios | Mismo 401 y mismo tiempo (hash señuelo) para correo inexistente, contraseña errónea o cuenta desactivada |
+| Fuerza bruta | 5 intentos por IP + correo en 15 min → **429** (en memoria en el monolito, en Redis en login) |
+| Sesión del monolito | Cookie `libreria.sid` `httpOnly`, `SameSite=Lax`, `secure` con HTTPS, regenerada al autenticar (anti-fijación) |
+| **JWT** | HS256 con algoritmo **fijo** (nunca el del token), 20 min, `iss`, `exp`, `jti` obligatorio; se verifican firma y claims antes de tocar datos |
+| Refresh token | Opaco, **de un solo uso** y rotado; Redis guarda sólo su SHA-256 |
+| Revocación | `/logout` y cada refresh revocan el `jti`; **todos** los servicios lo consultan en Redis |
+| SOAP | WS-Security UsernameToken con PasswordDigest, ventana de frescura y rechazo de *nonces* repetidos; además, nginx exige un JWT válido (`auth_request` contra pedidos) |
+| WebSocket de rastreo | El servicio GPS no conoce el secreto: reenvía el JWT a `GET /orders/<id>`; un pedido ajeno se cierra. Revalida cada 60 s |
 
-### Cliente de escritorio (Tkinter): la librería online
+### 3. Autorización
 
-[apps/services/soap/cliente/cliente_escritorio.py](apps/services/soap/cliente/cliente_escritorio.py)
-es la app de escritorio ya existente, convertida en una **tienda de libros**:
+- **Roles** `admin` / `lector` verificados en el servidor en cada ruta
+  (`requireAdmin` en el monolito, `requiere_jwt(*roles)` en los servicios):
+  **401** sin credencial, **403** con rol insuficiente. Ocultar botones en la
+  interfaz es comodidad, no protección.
+- **Propiedad del recurso:** un lector sólo ve su cuenta, sus pedidos y sus pagos.
+- **Un solo administrador**, impuesto por el índice único parcial
+  `ux_usuarios_admin_unico` (sin condición de carrera).
 
-- **Catálogo** (pantalla principal): cuadrícula de tarjetas con **portada**, título,
-  autores, precio y disponibilidad; buscador (título, ISBN o autor), orden por
-  título, precio o existencias.
-- **Detalle** del libro con portada grande, ficha y los conceptos que explica.
-- **Carrito** y **compra**: al finalizar (pide iniciar sesión) crea el pedido y
-  abre el pago simulado. El precio lo toma el servidor de pedidos de la base de
-  datos; lo que se ve en pantalla es informativo.
-- **Mi cuenta** (lector: Usuarios, Pedidos, Pagos) y **Administración** (admin: además
-  Libros, Autores y el clasificador SOAP): las pestañas CRUD de antes, detrás de
-  un botón del encabezado y según el rol.
-- Abajo, el **estado del sistema**: semáforos de cada servicio, de Redis y del SOAP
-  cada 10 s (verde = ok, amarillo = degradado por Redis caído, rojo = no responde).
-  El JWT se renueva solo antes de caducar.
+### 4. Entrada, salida y aplicación web
 
-Las portadas se piden por HTTPS a `/uploads/<uuid>.png` (nginx, ver
-`deploy/nginx-api-tls.conf`) y se guardan en memoria. Son PNG; **Pillow es opcional**
-(`pip install pillow`): con él se reescalan finas y se aceptan JPG/WebP.
+| Amenaza | Control |
+|---|---|
+| Inyección SQL | 100 % de consultas parametrizadas (`$1`, `%s`); ninguna concatena datos del usuario |
+| XSS | EJS escapa siempre (`<%= %>`); CSP con `script-src 'self'` |
+| CSRF | Token de 32 bytes por sesión, comparado en tiempo constante, en todo formulario que escribe |
+| Validación | Server-side obligatoria (`services/validacion.js` y validadores de cada servicio); `novalidate` en formularios |
+| Subida de archivos | MIME y extensión en lista blanca, 2 MB, **firma binaria** verificada, nombre UUID generado por el servidor, `uploads/` fuera de `public/`, `nosniff`, el proxy niega extensiones ejecutables |
+| Cabeceras | `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy`, CSP, sin `x-powered-by` |
+| Fugas por errores | Ningún stack trace, nombre de tabla, SQL ni SOAP Fault con detalle llega al cliente; el detalle va al log |
+| CORS | `CORS_ORIGENES` en lista explícita; vacío = ninguno, nunca `*` |
 
-```bash
-API_BASE=https://34.51.108.167 CA_CERT=~/libreria-api.crt python3 apps/services/soap/cliente/cliente_escritorio.py
-```
+### 5. Datos y secretos
 
-`CA_CERT` es la copia del certificado autofirmado (se baja con `gcloud compute scp`,
-ver [docs/GCP_COMMANDS.md](docs/GCP_COMMANDS.md)); la verificación nunca se
-desactiva. En macOS hace falta Tk (`brew install python-tk`). Módulos:
-`api_rest.py` (red, JWT, semáforos, descarga de portadas), `tienda.py` (tema, tarjetas,
-detalle, carrito, pago), `pestanas.py` (CRUD de administración) y
-`cliente_escritorio.py`. Pruebas sin pantalla:
-`apps/services/soap/tests/pruebas_cliente_rest.py`.
+- **Mínimo privilegio en PostgreSQL:** `libreria_app` sólo tiene
+  `SELECT/INSERT/UPDATE/DELETE` (sin `DROP`/`ALTER`, no es dueño); `libreria_soap`
+  sólo lee las columnas que expone su contrato y no puede leer `usuarios`.
+- **Ninguna credencial en el repositorio** (ni en comentarios ni en `.sql`). Los
+  secretos —`JWT_SECRET_KEY`, `DB_PASSWORD`, `SECRET_KEY`, contraseña de Redis,
+  clave TLS— viven sólo en los `.env` (600) de la VM; `.env.example` sólo trae
+  nombres. Cada servicio **se niega a arrancar** si le falta un secreto.
+- **Redis endurecido:** `bind 127.0.0.1`, `protected-mode`, `requirepass`,
+  `maxmemory` con política `volatile-lru`; la contraseña se enmascara en los logs.
+- **Falla segura ante caída de Redis:** sesión, refresh y toda ruta con JWT
+  fallan **cerrado** (503: no se acepta un token sin comprobar su revocación); sólo
+  la lectura del catálogo falla abierto, desde PostgreSQL.
 
-### Microservicio de catálogo
+### 6. Procesos en la VM
 
-```bash
-cd /opt/udem/libreria/apps/services/catalogo
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-cp .env.example .env && chmod 600 .env     # completar DB_PASSWORD y JWT_SECRET
+Cada unidad de systemd corre con usuario sin privilegios y `NoNewPrivileges`,
+`PrivateTmp`, `ProtectSystem=strict`, `ProtectHome`, `ProtectKernelTunables`,
+`ProtectControlGroups` y `RestrictAddressFamilies`; reinicio automático ante
+fallo. SELinux en modo *enforcing* (`restorecon`, `httpd_can_network_connect`).
 
-sudo restorecon -Rv /opt/udem/libreria/apps/services/catalogo
-sudo cp /opt/udem/libreria/deploy/libreria-catalogo.service /etc/systemd/system/
-sudo systemctl daemon-reload && sudo systemctl enable --now libreria-catalogo
-systemctl status libreria-catalogo --no-pager -l
-```
+### Riesgos conocidos
 
-Cuatro cosas que cuestan un rato averiguar si no están escritas:
-
-- **Sin `JWT_SECRET` el servicio no arranca**, y es a propósito: sin él no hay
-  forma de verificar los JWT que el microservicio de autenticación emite en
-  `/login`, y `/books/insert`, `/books/update` y `/books/delete` se quedarían
-  sin protección real. Debe ser **el mismo valor** que `JWT_SECRET` en
-  `apps/services/login/.env` — es un secreto compartido, no uno propio de este
-  servicio.
-- **El `restorecon` va DESPUÉS del `pip install`**, y hay que repetirlo cada vez
-  que se recree el entorno virtual. Los archivos clonados en el directorio
-  personal arrastran la etiqueta SELinux `user_home_t`, y systemd no puede
-  siquiera leer un enlace simbólico con ese tipo: el servicio falla con
-  `203/EXEC` y *Permission denied* aunque el binario corra perfectamente a mano.
-- **El `status` recién arrancado engaña.** A los pocos milisegundos muestra
-  `active (running)` con `Tasks: 1` y el PID entre paréntesis, antes de saberse
-  si el proceso sobrevivió. Espera unos segundos y comprueba que hay `Tasks: 3`
-  —el maestro de gunicorn y dos workers— y que `ss -lntp` lo ve en el puerto.
-- **Dos workers, al contrario que el módulo SOAP**, que está clavado en uno
-  porque guarda en memoria del proceso los nonces de WS-Security. Este servicio
-  no retiene nada entre peticiones, así que se puede replicar. Cada worker abre
-  su propio pool de hasta `DB_POOL_MAX` conexiones: si se suben los workers, hay
-  que bajar esa variable en la misma proporción.
-
-Operación diaria:
-
-```bash
-sudo systemctl restart libreria-catalogo
-journalctl -u libreria-catalogo -f        # logs en vivo, con cada petición
-```
-
-Antes de esto el servicio se lanzaba a mano con `python app.py`, colgando del
-shell de la sesión SSH. Al cerrar la terminal quedaba un proceso huérfano
-reteniendo el puerto, y el siguiente arranque fallaba con *Address already in
-use*. Con systemd el proceso cuelga de PID 1, vuelve solo tras reiniciar la VM
-(`enabled`) y se relevanta a los 5 segundos si se cae (`Restart=on-failure`).
-
-### Microservicio de autenticación
-
-```bash
-cd /opt/udem/libreria/apps/services/login
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-cp .env.example .env && chmod 600 .env     # completar DB_PASSWORD, SECRET_KEY y JWT_SECRET
-
-sudo restorecon -Rv /opt/udem/libreria/apps/services/login
-sudo cp /opt/udem/libreria/deploy/libreria-login.service /etc/systemd/system/
-sudo systemctl daemon-reload && sudo systemctl enable --now libreria-login
-systemctl status libreria-login --no-pager -l
-```
-
-Mismas trampas que el catálogo —el `restorecon` después del `pip install`, el
-`status` que engaña recién arrancado— más dos propias:
-
-- **Sin `SECRET_KEY` el servicio no arranca**, y es a propósito: es la clave con
-  la que se firman las cookies de sesión. Un valor por omisión en un
-  repositorio público permitiría a cualquiera fabricarse la sesión de cualquier
-  usuario. Genera una con
-  `python3 -c "import secrets; print(secrets.token_urlsafe(48))"`. Cambiarla
-  invalida todas las sesiones abiertas, que es justo lo que se quiere si alguna
-  vez se sospecha que se filtró.
-- **`JWT_SECRET` tampoco tiene valor por omisión**, y debe ser **el mismo**
-  que `apps/services/catalogo/.env`: `/login` firma con él el JWT que devuelve
-  junto con la cookie de sesión, y el catálogo lo usa para verificar ese mismo
-  token en sus escrituras (`Authorization: Bearer <token>`), sin consultar a
-  este servicio ni a una base de sesiones compartida.
-- **Necesita Postfix levantado** para verificar correos, pero no depende de él
-  para arrancar: `Wants=`, no `Requires=`. Sin Postfix el registro sigue
-  funcionando y `/health` reporta el correo como `degradado`, no como `error`.
-
-El detalle del contrato XML/JSON, de la verificación del correo y de sus
-límites está en
-[`apps/services/login/README.md`](apps/services/login/README.md).
-
-### Firewall: son dos, no uno
-
-Para publicar un puerto hay que abrirlo en **los dos**, y olvidar el segundo se
-manifiesta como un `curl` que se queda colgado sin responder:
-
-```bash
-# 1. GCP. La etiqueta debe coincidir con una que la VM realmente tenga:
-#    gcloud compute instances describe maquina01 --zone ZONA #      --format="value(tags.items.list())"
-gcloud compute firewall-rules create libreria-permitir-microservicios \
-  --direction=INGRESS --action=ALLOW --rules=tcp:5000,tcp:5002 \
-  --target-tags=http-server --source-ranges=0.0.0.0/0
-
-# 2. firewalld, dentro de la VM
-sudo firewall-cmd --add-port=5000/tcp --add-port=5002/tcp --permanent
-sudo firewall-cmd --reload && sudo firewall-cmd --list-ports
-```
-
-> El puerto **25 no se abre**, ni de entrada ni de salida. Postfix escucha sólo
-> en loopback y existe únicamente para que el microservicio de autenticación le
-> pregunte si una dirección existe. Abrirlo lo convertiría en un relay abierto.
-> Y la salida por el 25 no se puede abrir aunque se quiera: el bloqueo está en
-> la red de Google, aguas arriba del firewall de la VM.
-
-Diagnóstico: `curl` colgado sin respuesta es firewall; *connection refused* es
-que el servicio no corre o escucha sólo en loopback.
-
-> **Con el 5002 abierto a `0.0.0.0/0`, `/books/insert`, `/books/update` y
-> `/books/delete` son alcanzables por cualquiera**, porque corren con el rol
-> `libreria_app`, que sí escribe. Lo que los protege es que las tres exigen un
-> JWT válido **con rol `admin`** emitido por `/login`
-> (`Authorization: Bearer <token>`) — o, si se definió, la `X-API-Key` de
-> `API_TOKEN` como vía alterna de servicio a servicio. Un JWT válido de un
-> `lector` se rechaza igual, con 403 en vez de 401. Ninguna de las dos tiene
-> valor por omisión que abra las escrituras: sin un JWT de administrador, y
-> sin `API_TOKEN` configurado, el catálogo rechaza la escritura. Para acotar
-> aún más la superficie, estrecha la regla a tu IP con
-> `gcloud compute firewall-rules update
-> libreria-permitir-catalogo --source-ranges=TU_IP/32`, aunque eso no
-> sobrevive a un cambio de red.
-
-### La IP pública es efímera
-
-Si la VM no tiene una IP reservada, GCP se la quita al apagarla y le da otra
-distinta al encenderla. Cada apagón rompe la URL de Postman y la configuración
-que el cliente Electron guardó en `localStorage`. Para comprobarlo y reservar la
-actual sin cortar nada:
-
-```bash
-gcloud compute addresses list        # vacío = efímera
-gcloud compute addresses create libreria-ip --addresses=LA_IP_ACTUAL --region=REGION
-```
-
-Una IP estática **en uso** es gratis; reservada con la VM apagada se cobra por
-hora. Si la VM va a quedar apagada mucho tiempo, libérala con
-`gcloud compute addresses delete libreria-ip --region=REGION`.
-
-Apagar la VM no deja nada encendido: se detienen los tres servicios. Al
-encenderla vuelven solos, porque las tres unidades están `enabled`.
+| Riesgo | Estado |
+|---|---|
+| Contraseñas antiguas en el historial de git (H-01) | Rotadas; borrar el archivo no basta |
+| Puertos 5003–5006 aún hablan HTTP y tienen una regla de GCP a una IP vieja | Pendiente: ligarlos a `127.0.0.1` y quitar la regla |
+| Regla heredada `allow-3000` en GCP | Pendiente de borrar (Node escucha en loopback, así que no responde) |
+| Certificado autofirmado | Cifra igual; faltaría un dominio + Let's Encrypt para eliminar avisos |
+| Un cambio de rol tarda hasta 20 min en verse en los servicios | Aceptado: es la vida del JWT; el refresh sí reconsulta la BD |
 
 ---
 
-## Agregar un módulo nuevo
+## Pruebas y rendimiento
 
-Los archivos de código de esta sección viven dentro de `apps/web-monolito/`;
-`db/` sigue en la raíz del monorepo.
+| Qué | Cómo | Evidencia |
+|---|---|---|
+| Monolito: 60 casos (funcionales y de seguridad) | `bash tests/pruebas.sh` | `docs/evidencias/` |
+| Base de datos: consultas + pruebas negativas de integridad | `db/03_all_quieries_before_stored_procedures.sql` | `docs/evidencias/` |
+| Servicios JWT (31 en la VM, 29 desde fuera, HTTP y HTTPS) | `tests/pruebas_servicios.py` | `docs/evidencias/pruebas_servicios_*.txt` |
+| Redis (26 pruebas) y caída de Redis | `tests/pruebas_redis.py` (`REDIS_CAIDO=1`) | `docs/evidencias/pruebas_redis_*.txt` |
+| Seguridad de cada servicio, sin red | `python3 pruebas.py` en cada carpeta | — |
+| SOAP | `apps/services/soap/tests/pruebas_soap.py` | `apps/services/soap/docs/evidencias/` |
+| Carga: monolito vs. microservicios (Locust) | `locust_tests/ejecutar.sh <perfil>` | `locust_tests/evidencias/` |
+| **Benchmark de proxy inverso, balanceador y API gateway** | `bash docs/benchmark_proxy/ejecutar.sh` | [docs/benchmark_proxy/BENCHMARK.md](docs/benchmark_proxy/BENCHMARK.md) |
 
-Ejemplo: un módulo `editoriales`.
-
-1. **Base de datos.** Escribir `db/pending/YYYYMMDD-agrega-editoriales.sql`.
-   Al confirmarse la ejecución, mover a `db/applied/` y actualizar
-   `db/01_schema.sql` y el diagrama de este README.
-
-2. **Crear los tres archivos del módulo:**
-
-```
-src/modules/editoriales/
-├── editoriales.model.js        SQL parametrizado
-├── editoriales.controller.js   orquesta model + vista
-└── editoriales.routes.js       método + URL → controller, con middleware
-```
-
-3. **Vistas** en `views/editoriales/`, o reutilizar `views/catalogo/` si el
-   módulo es un catálogo simple (`nombre` + `descripcion`), en cuyo caso el
-   controller se resuelve con `services/crudCatalogo.js` en cinco líneas.
-
-4. **Validación** en `services/validacion.js`.
-
-5. **Registrar en `app.js`:**
-
-```js
-app.use('/editoriales', require('./src/modules/editoriales/editoriales.routes'));
-```
-
-Sigue el patrón del módulo vecino más parecido en vez de introducir estructuras
-nuevas.
+Las credenciales de prueba se pasan siempre por variable de entorno.
 
 ---
 
-## Cliente de escritorio en Electron
+## Mapa del repositorio
 
-`apps/electron-app/` es una aplicación de escritorio que consume el catálogo
-**exclusivamente en XML** desde el microservicio (`/books?format=xml`) y lo
-muestra en tarjetas Material Design con portada, título, autores, ISBN y precio:
-6 por página, con paginación.
+| Ruta | Qué es |
+|---|---|
+| `apps/web-monolito/` | Monolito Node + Express + EJS |
+| `apps/services/{login,catalogo,soap,users,authors,pedidos,pagos}/` | Microservicios Python |
+| `apps/electron-app/` · `apps/JavaDesktop_app/` | Clientes de escritorio |
+| `clients/` | Clientes SOAP en Java y Python |
+| `gps/` | Microservicio WebSocket, simulador GPS y mapa |
+| `db/` | Scripts canónicos `00…06`, `pending/` y `applied/` |
+| `deploy/` | Apache, nginx, unidades de systemd, endurecimiento de Redis |
+| `tests/` · `locust_tests/` | Pruebas funcionales, de seguridad y de carga |
+| `docs/` · `evidencias/` | Documentación, reportes y capturas |
 
-```bash
-cd apps/electron-app
-npm install
-npm start
-```
-
-Tres detalles de diseño que conviene conocer antes de tocarla:
-
-- **La petición HTTP vive en el proceso principal**, no en la ventana. Con la
-  página cargada por `file://`, el microservicio bloquearía el `fetch` por CORS;
-  el XML viaja al renderer por IPC y allí se parsea con `DOMParser`.
-- **Sólo XML.** Se pide con `Accept: application/xml` y con `?format=xml`
-  forzado en la URL; si la respuesta no es XML, se rechaza con un mensaje en vez
-  de intentar interpretarla.
-- **La configuración del servicio (IP, puerto y endpoint) se edita desde un
-  popup y se persiste en `localStorage`.** El XML sólo trae el nombre del
-  archivo de la portada, así que el popup incluye además la ruta pública que las
-  sirve; por defecto `http://<IP>/library/uploads`, que es donde el monolito las
-  publica en la VM.
-
-Los pasos completos de instalación —incluido cómo instalar Node.js en una
-máquina limpia— están en
-[apps/electron-app/README.md](apps/electron-app/README.md).
+Cada app se instala y arranca desde su propia carpeta (no hay workspaces); ver el
+README de cada una.
 
 ---
 
-## Cliente de escritorio en Java (JavaFX)
-
-`apps/JavaDesktop_app/` es una app JavaFX que consume login, users, catálogo,
-authors, pedidos, pagos y el servicio SOAP por HTTPS, y rastrea cada pedido en un
-mapa Leaflet de Monterrey por WebSocket (`gps/microservice/entregas.py`). No toca
-la base de datos. Arranque: `bash apps/JavaDesktop_app/ejecutar.sh`. Detalle en
-[apps/JavaDesktop_app/README.md](apps/JavaDesktop_app/README.md) y entrega en
-[docs/javadesktop/AppJava.pdf](docs/javadesktop/AppJava.pdf).
-
-## Documentación del ejercicio
+## Documentación
 
 | Documento | Contenido |
 |---|---|
-| [docs/TECHNICAL_REPORT.md](docs/TECHNICAL_REPORT.md) | Reporte técnico completo |
-| [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) | Requisitos funcionales y no funcionales, actores, riesgos |
-| [docs/ENGINEERING_DECISIONS.md](docs/ENGINEERING_DECISIONS.md) | 13 decisiones con alternativas y condición de reversa |
+| [MANUAL_TECNICO.md](MANUAL_TECNICO.md) | Manual técnico completo: rutas, esquema, variables, despliegue |
 | [docs/SECURITY_REVIEW.md](docs/SECURITY_REVIEW.md) | Controles, hallazgos y riesgos residuales |
-| [docs/TEST_PLAN.md](docs/TEST_PLAN.md) | Matriz de pruebas y cobertura |
-| [docs/GCP_COMMANDS.md](docs/GCP_COMMANDS.md) | Infraestructura, PostgreSQL y despliegue |
-| [docs/NORMALIZATION_4FN.xlsx](docs/NORMALIZATION_4FN.xlsx) | Normalización paso a paso hasta 4FN |
-| [docs/ARCHITECTURE_MONOLITHIC.png](docs/ARCHITECTURE_MONOLITHIC.png) | Diagrama de macro-arquitectura |
-| [docs/DB_DESIGN_ER_4FN.png](docs/DB_DESIGN_ER_4FN.png) | Diagrama entidad-relación |
-| [docs/evidencias/](docs/evidencias/) | Salidas de las pruebas ejecutadas |
+| [docs/ENGINEERING_DECISIONS.md](docs/ENGINEERING_DECISIONS.md) | Decisiones con alternativas y condición de reversa |
+| [docs/TECHNICAL_REPORT.md](docs/TECHNICAL_REPORT.md) | Reporte técnico |
+| [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) · [docs/TEST_PLAN.md](docs/TEST_PLAN.md) | Requisitos y plan de pruebas |
+| [docs/GCP_COMMANDS.md](docs/GCP_COMMANDS.md) | Infraestructura y despliegue en GCP |
+| [docs/benchmark_proxy/BENCHMARK.md](docs/benchmark_proxy/BENCHMARK.md) | Benchmark de proxy inverso, balanceador y API gateway |
+| [gps/README.md](gps/README.md) | GPS en tiempo real |
+| [docs/javadesktop/AppJava.pdf](docs/javadesktop/AppJava.pdf) | Entrega de la app Java |

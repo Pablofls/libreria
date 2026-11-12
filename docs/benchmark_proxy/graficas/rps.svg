@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="466" font-family="sans-serif" font-size="13">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="12" y="24" font-size="15" font-weight="bold" fill="#222">Peticiones por segundo (más es mejor)</text>
+<text x="222" y="55" text-anchor="end" fill="#333">[rp] nginx</text>
+<rect x="230" y="43" width="283.5" height="17" rx="3" fill="#2f6f5e"/>
+<text x="519.5" y="56" fill="#333">7,250.7 rps</text>
+<text x="222" y="81" text-anchor="end" fill="#333">[rp] haproxy</text>
+<rect x="230" y="69" width="276.5" height="17" rx="3" fill="#2f6f5e"/>
+<text x="512.5" y="82" fill="#333">7,070.0 rps</text>
+<text x="222" y="107" text-anchor="end" fill="#333">[rp] directo</text>
+<rect x="230" y="95" width="267.1" height="17" rx="3" fill="#2f6f5e"/>
+<text x="503.1" y="108" fill="#333">6,831.0 rps</text>
+<text x="222" y="133" text-anchor="end" fill="#333">[rp] traefik</text>
+<rect x="230" y="121" width="233.3" height="17" rx="3" fill="#2f6f5e"/>
+<text x="469.3" y="134" fill="#333">5,965.1 rps</text>
+<text x="222" y="159" text-anchor="end" fill="#333">[rp] envoy</text>
+<rect x="230" y="147" width="226.5" height="17" rx="3" fill="#2f6f5e"/>
+<text x="462.5" y="160" fill="#333">5,793.0 rps</text>
+<text x="222" y="185" text-anchor="end" fill="#333">[rp] apache-nginx</text>
+<rect x="230" y="173" width="225.4" height="17" rx="3" fill="#2f6f5e"/>
+<text x="461.4" y="186" fill="#333">5,764.2 rps</text>
+<text x="222" y="211" text-anchor="end" fill="#333">[rp] apache</text>
+<rect x="230" y="199" width="191.0" height="17" rx="3" fill="#2f6f5e"/>
+<text x="427.0" y="212" fill="#333">4,883.0 rps</text>
+<text x="222" y="237" text-anchor="end" fill="#333">[rp] nginx-sin-keepalive</text>
+<rect x="230" y="225" width="132.3" height="17" rx="3" fill="#2f6f5e"/>
+<text x="368.3" y="238" fill="#333">3,384.0 rps</text>
+<text x="222" y="263" text-anchor="end" fill="#333">[lb] envoy</text>
+<rect x="230" y="251" width="420.0" height="17" rx="3" fill="#2f6f5e"/>
+<text x="656.0" y="264" fill="#333">10,740.0 rps</text>
+<text x="222" y="289" text-anchor="end" fill="#333">[lb] nginx</text>
+<rect x="230" y="277" width="413.4" height="17" rx="3" fill="#2f6f5e"/>
+<text x="649.4" y="290" fill="#333">10,572.5 rps</text>
+<text x="222" y="315" text-anchor="end" fill="#333">[lb] haproxy</text>
+<rect x="230" y="303" width="380.1" height="17" rx="3" fill="#2f6f5e"/>
+<text x="616.1" y="316" fill="#333">9,720.8 rps</text>
+<text x="222" y="341" text-anchor="end" fill="#333">[lb] traefik</text>
+<rect x="230" y="329" width="354.9" height="17" rx="3" fill="#2f6f5e"/>
+<text x="590.9" y="342" fill="#333">9,074.5 rps</text>
+<text x="222" y="367" text-anchor="end" fill="#333">[gw] nginx-auth-cache</text>
+<rect x="230" y="355" width="204.6" height="17" rx="3" fill="#2f6f5e"/>
+<text x="440.6" y="368" fill="#333">5,230.9 rps</text>
+<text x="222" y="393" text-anchor="end" fill="#333">[gw] envoy-jwt</text>
+<rect x="230" y="381" width="184.4" height="17" rx="3" fill="#2f6f5e"/>
+<text x="420.4" y="394" fill="#333">4,716.0 rps</text>
+<text x="222" y="419" text-anchor="end" fill="#333">[gw] kong</text>
+<rect x="230" y="407" width="154.4" height="17" rx="3" fill="#2f6f5e"/>
+<text x="390.4" y="420" fill="#333">3,949.4 rps</text>
+<text x="222" y="445" text-anchor="end" fill="#333">[gw] nginx-auth-request</text>
+<rect x="230" y="433" width="61.0" height="17" rx="3" fill="#2f6f5e"/>
+<text x="297.0" y="446" fill="#333">1,560.2 rps</text>
+</svg>

@@ -1,0 +1,42 @@
+# Traefik bajo prueba (configuración dinámica).
+#   rp (:80)  proxy inverso hacia b1
+#   lb (:81)  balanceador round robin con chequeo activo cada 1 s y reintento
+http:
+  routers:
+    proxy-inverso:
+      entryPoints: [rp]
+      rule: "PathPrefix(`/`)"
+      service: uno
+    balanceador:
+      entryPoints: [lb]
+      rule: "PathPrefix(`/`)"
+      service: todos
+      middlewares: [reintento]
+
+  middlewares:
+    reintento:
+      retry:
+        attempts: 3
+
+  serversTransports:
+    rapido:
+      forwardingTimeouts:
+        dialTimeout: 1s
+
+  services:
+    uno:
+      loadBalancer:
+        serversTransport: rapido
+        servers:
+          - url: "http://172.28.0.11:80"
+    todos:
+      loadBalancer:
+        serversTransport: rapido
+        healthCheck:
+          path: /health
+          interval: 1s
+          timeout: 500ms
+        servers:
+          - url: "http://172.28.0.11:80"
+          - url: "http://172.28.0.12:80"
+          - url: "http://172.28.0.13:80"

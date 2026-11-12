@@ -1,0 +1,7 @@
+bench-nginx;0.02%;5.457MiB / 3.825GiB
+bench-haproxy;0.29%;10.42MiB / 3.825GiB
+bench-traefik;0.11%;26.73MiB / 3.825GiB
+bench-envoy;0.19%;21.71MiB / 3.825GiB
+bench-apache;0.01%;6.039MiB / 3.825GiB
+bench-kong;14.11%;118.1MiB / 3.825GiB
+bench-auth;0.11%;50.82MiB / 3.825GiB

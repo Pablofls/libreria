@@ -316,7 +316,7 @@ manera. Se mitiga con la regla de seguir el módulo vecino más parecido, y con
 `services/crudCatalogo.js`, que concentra la lógica común de los cinco catálogos
 en vez de copiarla cinco veces.
 
-**Evidencia.** `README.md` §Estructura de archivos.
+**Evidencia.** `MANUAL_TECNICO.md` §Estructura de archivos.
 
 ---
 
