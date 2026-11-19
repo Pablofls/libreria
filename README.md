@@ -62,8 +62,8 @@ datos y comparar estilos de arquitectura:
                   └───────┬──────────────────┬───────┘
                  :80 → 127.0.0.1:8009   :443 → 127.0.0.1:8443
                   ┌───────▼───────┐   ┌──────▼──────────────────────────────┐
-                  │ nginx (sitio) │   │ nginx (API): enrutamiento por ruta, │
-                  │ /library →    │   │ auth_request para /soap, WebSocket, │
+                  │ nginx (sitio) │   │ nginx (API gateway): /api/* con JWT │
+                  │ /library →    │   │ en el borde, auth_request, WebSocket│
                   │ estáticos     │   │ portadas, /health y /metrics        │
                   └───────┬───────┘   └──┬───┬───┬───┬───┬───┬───┬───┬─────┘
                           │              │   │   │   │   │   │   │   │
@@ -131,6 +131,12 @@ métricas.
 
 Además, `/health/<servicio>` (semáforos de los clientes) y `/metrics/<servicio>`
 (JWT de admin) se publican por nginx para los seis servicios Flask.
+
+**API Gateway (`/api/*`).** Por HTTPS, nginx publica también la tabla de rutas
+del ejercicio: `/` → monolito, `/api/login`, `/api/books`, `/api/autores`,
+`/api/pedidos`, `/api/pagos` y `/api/users`. Sin un JWT válido, el gateway
+responde 401 sin llegar al servicio. Detalle en
+[MANUAL_TECNICO.md](MANUAL_TECNICO.md#api-gateway-nginx-rutas-api).
 
 **Flujo típico de compra (app de escritorio):**
 

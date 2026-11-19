@@ -199,6 +199,13 @@ en los cuatro `app.py`. Detalle y despliegue: [MANUAL_TECNICO.md](MANUAL_TECNICO
   `/etc/pki/tls/certs/libreria-api.crt` y su clave en `/etc/pki/tls/private/`,
   nunca en el repo). `curl` necesita `--cacert`; el flujo completo corre con
   `CA_CERT=<crt> HOST=<ip> … python3 tests/pruebas_servicios.py`.
+- **API Gateway (2026-11-19)** en el mismo `nginx-api-tls.conf`: `/` → `/library/`,
+  `/api/login|books|autores|pagos|pedidos|users` → 5000/5002/5004/5006/5005/5003,
+  quitando el prefijo (`/api/pedidos/…` → `/orders/…`). Sin JWT válido responde el
+  gateway (401 con `"origen":"gateway"`, vía `auth_request` a pedidos
+  `GET /orders/books`); books y autores sólo lo piden fuera de GET. Las rutas sin
+  prefijo siguen. Pruebas: `tests/pruebas_gateway.py`. Sintaxis validada con
+  `nginx:1.27-alpine` en Docker local.
 - **Pendiente (opcional):** los puertos 5003–5006 siguen hablando HTTP y abiertos
   a una IP concreta en GCP (`libreria-permitir-servicios-jwt`) y en `firewalld`;
   para que HTTPS proteja de verdad, ligar las unidades a `127.0.0.1` y cerrar esos

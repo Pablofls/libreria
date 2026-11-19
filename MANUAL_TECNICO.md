@@ -740,6 +740,63 @@ sudo systemctl daemon-reload && sudo systemctl enable --now libreria-users
 Pruebas: `python3 pruebas.py` en cada carpeta (seguridad, sin base de datos) y
 `tests/pruebas_servicios.py` contra la VM (flujo completo).
 
+### API Gateway (nginx, rutas `/api/*`)
+
+El server de nginx de la API (`deploy/nginx-api-tls.conf`, `127.0.0.1:8443`,
+detrás del Apache que termina TLS en el 443) hace de **API Gateway**: un único
+punto de entrada que reparte por prefijo y rechaza en el borde lo que no trae
+un JWT válido.
+
+```
+Cliente ──HTTPS──▶ Apache :443 ──▶ nginx gateway 127.0.0.1:8443
+                                     │  1. ¿qué prefijo?        (location)
+                                     │  2. ¿hace falta JWT?     (auth_request → pedidos GET /orders/books)
+                                     │       no válido → 401 {"origen":"gateway"}  (el servicio ni se entera)
+                                     │  3. quita /api/<nombre> y reenvía
+                                     ▼
+                  login 5000 · catálogo 5002 · users 5003 · autores 5004 · pedidos 5005 · pagos 5006
+                  monolito: nginx 8009 → Node 3000
+```
+
+| Prefijo | Servicio | Destino real | Acceso (en el gateway) |
+|---|---|---|---|
+| `/` | Monolito | 302 → `/library/` (nginx 8009 → Node 3000) | Público |
+| `/api/login` | Login | 5000 `/login`; `/api/login/{register,logout,session,token/refresh}` → `/…` | Público, limitado a 30/min por IP (ráfaga 10) → 429 |
+| `/api/books` | Catálogo | 5002 `/books…` | GET público; escritura con JWT |
+| `/api/autores` | Authors | 5004 `/authors…` | GET público; escritura con JWT |
+| `/api/pagos` | Pagos | 5006 `/payments…` | JWT |
+| `/api/pedidos` | Pedidos | 5005 `/orders…` | JWT |
+| `/api/users` | Users | 5003 `/users…` | JWT |
+
+Los puertos son los reales de la VM, no los de la tabla propuesta en clase.
+
+- **Los servicios no cambian.** El gateway traduce `/api/pedidos/7/cancel` →
+  `/orders/7/cancel`. Las rutas sin prefijo (`/books`, `/orders`, …) se
+  conservan porque las usan la app Java, la de Tkinter y las pruebas viejas.
+- **Rechazo temprano.** nginx no verifica JWT por sí mismo: con `auth_request`
+  le pregunta a pedidos, que comprueba firma, `exp`, `iss` y revocación en Redis.
+  Para books y autores, un `map` sobre `$request_method` deja pasar GET, HEAD y
+  OPTIONS sin preguntar. El preflight CORS (OPTIONS) nunca exige token.
+- **El rol lo sigue decidiendo cada servicio.** El gateway sólo sabe si el token
+  es válido: un lector con token pasa a `/api/users` y el servicio le responde
+  403. Las respuestas del gateway llevan `"origen": "gateway"`, las del servicio no.
+- **Falla cerrada.** Si pedidos no puede decidir (p. ej. Redis caído, 503), el
+  gateway responde 503 en lugar de dejar pasar; un servicio caído da 502 en JSON.
+- **Trazabilidad.** Cada respuesta lleva `X-Request-ID`, que también se manda
+  al servicio. `set_real_ip_from 127.0.0.1` + `X-Forwarded-For` recuperan la IP
+  real del cliente detrás de Apache (lo necesita el limitador).
+
+Despliegue en la VM (Apache y los servicios no se reinician):
+
+```bash
+cd /opt/udem/libreria && git pull
+sudo cp deploy/nginx-api-tls.conf /etc/nginx/conf.d/library-api-tls.conf
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+Pruebas: `tests/pruebas_gateway.py` (por HTTPS, con `CA_CERT`, `HOST` y las
+credenciales por entorno; `LIMITE=1` añade la ráfaga contra el limitador).
+
 ### Redis: sesiones, revocación y caché
 
 Redis es una capa **compartida y auxiliar**: PostgreSQL sigue siendo la fuente de
