@@ -58,22 +58,21 @@ cd apps/JavaDesktop_app && bash ejecutar.sh
 | [docs/evidencias/pruebas_gateway.txt](../evidencias/pruebas_gateway.txt) | 23 pruebas contra la VM por HTTPS, 0 fallos: rutas `/api/*`, rechazo temprano (401 del gateway), 403 del servicio, rutas viejas intactas |
 | [docs/evidencias/pruebas_clientes_gateway.txt](../evidencias/pruebas_clientes_gateway.txt) | Las tres apps: Tk 42/0 y su capa de red contra la VM; Java 32/0 (`RutaGatewayTest`); Electron contra la VM (XML, portadas, JSON del asistente) y la regla de certificado de Chromium |
 
-**Capturas** en `evidencias/api gateway/`, numeradas:
+**Capturas** en [`evidencias/api gateway/`](../../evidencias/api%20gateway/) (2026-11-19):
 
-| # | Captura |
+| Captura | Qué demuestra |
 |---|---|
-| 01 | `sudo nginx -t` y `systemctl status nginx` en la VM |
-| 02 | `curl` sin token a `/api/pedidos` → 401 `"origen":"gateway"` |
-| 03 | Electron con el catálogo y las portadas; el pie muestra `https://34.51.108.167/api/books?format=xml` |
-| 04 | Electron, popup *Configurar servicio* con la URL efectiva del gateway |
-| 05 | Tk: tienda con portadas, sesión iniciada y semáforos en verde |
-| 06 | Tk: una compra (pedido + pago) |
-| 07 | Java: catálogo con sesión iniciada |
-| 08 | Java: compra y *Mis compras* |
-| 09 | `access.log` de nginx con las peticiones `/api/*` hechas por las tres apps (ver abajo) |
-| 10 | `tests/pruebas_gateway.py` con 0 fallos |
+| [01-vm-nginx-activo](../../evidencias/api%20gateway/01-vm-nginx-activo.png) | En la VM: `nginx -t` válido y nginx activo con la configuración del gateway. (El `curl` a la IP pública desde la propia VM da `000`: sale a la red de Google y `firewalld` lo descarta; la prueba desde fuera es la 02) |
+| [02-gateway-sin-token-401](../../evidencias/api%20gateway/02-gateway-sin-token-401.png) | Desde el Mac, `GET /api/pedidos` sin token → **401 del gateway** (`"origen": "gateway"`): el servicio ni se entera |
+| [03-electron-catalogo-por-gateway](../../evidencias/api%20gateway/03-electron-catalogo-por-gateway.png) | **Electron**: catálogo con portadas, pedido a `https://34.51.108.167/api/books?format=xml` (bajo el título) |
+| [04-tk-panel-por-gateway](../../evidencias/api%20gateway/04-tk-panel-por-gateway.png) | **Python Tk**: sesión de administrador, 34 libros y semáforos en verde. El rojo de `soap` es esperado: ese servicio va por túnel SSH, no por el gateway |
+| [05-java-compra-por-gateway](../../evidencias/api%20gateway/05-java-compra-por-gateway.png) | **Java**: compra confirmada (pedido #17 pagado, pago aprobado y código de rastreo) |
+| [06-java-mis-compras](../../evidencias/api%20gateway/06-java-mis-compras.png) | **Java**: *Mis compras* con el pedido nuevo |
+| [07-nginx-log-peticiones-api](../../evidencias/api%20gateway/07-nginx-log-peticiones-api.png) | `access.log` del gateway con las peticiones `/api/*` de **las tres apps**, distinguibles por su `User-Agent`: `LibreriaElectron/1.0`, `Python-urllib/3.13` (Tk, incluida su compra: `POST /api/pedidos` y `POST /api/pagos`, 201) y `Java-http-client/21`; además el 401 al `curl` de la 02 |
+| [08-pruebas-gateway-23-ok](../../evidencias/api%20gateway/08-pruebas-gateway-23-ok.png) | `tests/pruebas_gateway.py` contra la VM: 23 pruebas, 0 fallos |
 
-Para la 09, en la VM (borra la IP del cliente: el repositorio es público):
+La 07 se sacó en la VM con este comando, que borra la IP del cliente (el
+repositorio es público):
 
 ```bash
 sudo tail -n 300 /var/log/nginx/library-api.access.log | grep ' /api/' | awk '{$1="<ip>"; print}' | tail -n 40
