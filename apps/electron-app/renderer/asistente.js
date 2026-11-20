@@ -51,10 +51,10 @@ function cambiarVista(nombre) {
 /* -------------------------------------------------------------- Datos */
 
 function urlCatalogo() {
+    // Mismo origen y endpoint que la vista del catalogo (origenServicio y
+    // construirUrl viven en renderer.js), pero en JSON.
     const config = leerConfig();
-    const host = String(config.ip || '').trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '');
-    const puerto = String(config.puerto || '').trim();
-    const url = new URL(`http://${host}${puerto ? `:${puerto}` : ''}/books`);
+    const url = new URL(construirUrl(config));
     url.searchParams.set('format', 'json');
     url.searchParams.set('limite', '500');
     return url.toString();
@@ -318,7 +318,7 @@ async function enviarPregunta() {
     if (problema) {
         const config = leerConfig();
         return terminarSinModelo(
-            `No pude consultar el catalogo en ${config.ip}:${config.puerto}: ${problema} No respondo con datos guardados.`,
+            `No pude consultar el catalogo en ${origenServicio(config)}: ${problema} No respondo con datos guardados.`,
         );
     }
 

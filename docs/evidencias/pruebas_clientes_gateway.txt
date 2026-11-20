@@ -1,0 +1,112 @@
+# Clientes de escritorio configurados para el API Gateway (/api/*)
+# Fecha: 2026-11-19 18:43. Corrido en el Mac, sin pantalla.
+
+## 1. Python Tk — apps/services/soap/tests/pruebas_cliente_rest.py
+##    (servidor de mentira que hace de gateway: recibe /api/<nombre>/...)
+----------------------------------------
+Exception occurred during processing of request from ('127.0.0.1', 55069)
+Traceback (most recent call last):
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/socketserver.py", line 318, in _handle_request_noblock
+    self.process_request(request, client_address)
+    ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/socketserver.py", line 349, in process_request
+    self.finish_request(request, client_address)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/socketserver.py", line 362, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/socketserver.py", line 761, in __init__
+    self.handle()
+    ~~~~~~~~~~~^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/http/server.py", line 436, in handle
+    self.handle_one_request()
+    ~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/http/server.py", line 424, in handle_one_request
+    method()
+    ~~~~~~^^
+  File "/Users/pablo/Documents/Integración/libreria/apps/services/soap/tests/pruebas_cliente_rest.py", line 133, in <lambda>
+    do_GET = lambda self: self.atender('GET')       # noqa: E731
+                          ~~~~~~~~~~~~^^^^^^^
+  File "/Users/pablo/Documents/Integración/libreria/apps/services/soap/tests/pruebas_cliente_rest.py", line 123, in atender
+    return self.wfile.write(cuerpo)
+           ~~~~~~~~~~~~~~~~^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/socketserver.py", line 840, in write
+    self._sock.sendall(b)
+    ~~~~~~~~~~~~~~~~~~^^^
+ConnectionResetError: [Errno 54] Connection reset by peer
+----------------------------------------
+1. Login y sesion
+  ok   sin login no hay sesion 
+  ok   login ok: sesion, rol e id del token 
+  ok   un lector no es admin 
+  ok   sabe cuando vence el JWT (20 min) 
+  ok   pide JSON al login (?format=json) 
+  ok   contrasena mala: ErrorApi 401 con el mensaje del servidor, sin sesion 
+2. Peticiones autenticadas
+  ok   GET manda Authorization: Bearer <jwt> 
+  ok   pasa por el gateway (/api/pedidos) y sin ?format 
+  ok   el catalogo va por /api/books y pide JSON 
+  ok   sin sesion: ErrorApi 401 sin tocar la red 
+  ok   403 se traduce a un mensaje en castellano 
+  ok   404 se traduce a un mensaje en castellano 
+  ok   503 se traduce a un mensaje en castellano 
+  ok   409 muestra el mensaje y los detalles del servidor 
+3. Renovacion automatica, antes de caducar
+  ok   con menos de 60 s de vida, renueva ANTES de la peticion 
+  ok   y la peticion usa el JWT nuevo 
+  ok   con JWT nuevo (20 min) ya no renueva de mas 
+  ok   renovar_si_hace_falta no hace nada si no toca 
+4. 401 en el camino: una renovacion y un solo reintento
+  ok   ante un 401 renueva una vez y reintenta con exito 
+  ok   si el refresh tampoco vale: 401 y la sesion se olvida 
+  ok   si renovar da 503 (Redis caido) la sesion NO se pierde: se puede reintentar 
+5. Logout no finge exito
+  ok   logout ok: se olvida todo 
+  ok   logout con 503: avisa y conserva la sesion (seguiria viva en el servidor) 
+6. Semaforos
+  ok   ok + redis ok = verde 
+  ok   ok + Redis caido = amarillo (degradado) 
+  ok   Redis sin configurar tambien es amarillo 
+  ok   base de datos caida (503) = rojo 
+  ok   el catalogo habla de status, no de estado: tambien verde 
+  ok   login anida redis en componentes: verde 
+  ok   login con Redis degradado: amarillo 
+  ok   sin respuesta = rojo 
+  ok   sin red: mensaje claro, no una excepcion de urllib 
+  ok   probar_tcp (semaforo del SOAP) 
+7. Portadas (recursos publicos)
+  ok   descarga una portada sin JWT 
+  ok   y no manda Authorization 
+  ok   /uploads/falta.png: ErrorApi con mensaje claro 
+  ok   /uploads/grande.png: ErrorApi con mensaje claro 
+  ok   sin red: ErrorApi(0), no una excepcion de urllib 
+8. Seguridad
+  ok   http de prueba: sin contexto TLS 
+  ok   con https se VERIFICA el certificado y el nombre 
+  ok   el codigo nunca desactiva la verificacion 
+  ok   la contrasena no se conserva 
+
+42 comprobaciones, 0 fallos
+
+## 2. Python Tk — capa de red (api_rest.ClienteApi) contra la VM real
+  GET /books   -> https://34.51.108.167/api/books   : 3 libros
+  GET /authors -> https://34.51.108.167/api/autores : 30 autores
+  GET /orders/books sin token -> /api/pedidos/books : (401, {'error': 'Token ausente, invalido o revocado', 'origen': 'gateway'})
+  semaforo login (/health/login)                    : ('verde', 'Todo en orden.', 'ok')
+
+## 3. Java (JavaFX) — mvn test (JDK 21); RutaGatewayTest = tabla del gateway
+[INFO] Tests run: 4, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.059 s -- in mx.udem.libreria.CestaTest
+[INFO] Tests run: 10, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.035 s -- in mx.udem.libreria.CodigoRastreoTest
+[INFO] Tests run: 3, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.094 s -- in mx.udem.libreria.ModelosTest
+[INFO] Tests run: 15, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.026 s -- in mx.udem.libreria.RutaGatewayTest
+[INFO] Tests run: 32, Failures: 0, Errors: 0, Skipped: 0
+[INFO] BUILD SUCCESS
+
+## 4. Electron — opciones de red de main.js contra la VM real
+  catalogo XML  https://34.51.108.167/api/books?format=xml : 200 application/xml; charset=utf-8 34 libros
+  portada       https://34.51.108.167/uploads/<uuid>.png  : 200 image/png
+  asistente     https://34.51.108.167/api/books?format=json: 200 application/json; charset=utf-8
+  sin el certificado de la VM (debe fallar)              : ERR DEPTH_ZERO_SELF_SIGNED_CERT
+## 5. Electron — Chromium (portadas en <img>) con la regla setCertificateVerifyProc de main.js
+  sin regla (debe dar error): error
+  con la regla de main.js:    carga, ancho 400

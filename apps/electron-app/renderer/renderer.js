@@ -4,13 +4,17 @@
    tarjetas. El XML se parsea con DOMParser y todo lo que viene del servicio se
    inserta con textContent — nunca con innerHTML. */
 
-const CLAVE_CONFIG = 'libreria.electron.config';
+// v2: desde el API Gateway (2026-11-19) los valores por omision cambiaron; con
+// la clave vieja, una configuracion guardada seguiria apuntando al 5002 directo.
+const CLAVE_CONFIG = 'libreria.electron.config.v2';
 const POR_PAGINA = 6;
 
+// Por omision, el catalogo se pide al API Gateway (nginx detras de Apache, 443):
+// https://<IP>/api/books. Puerto vacio (o 443) = https; otro puerto = http directo.
 const CONFIG_DEFECTO = Object.freeze({
-    ip: '34.51.80.53',
-    puerto: '5002',
-    endpoint: '/books',
+    ip: '34.51.108.167',
+    puerto: '',
+    endpoint: '/api/books',
     imagenes: '',
     modelo: 'qwen2.5:1.5b',
 });
@@ -65,12 +69,19 @@ function guardarConfig(config) {
     }
 }
 
-function construirUrl(config) {
+/* https://<host> si el puerto esta vacio o es 443 (el gateway); con otro
+   puerto, http://<host>:<puerto> (un servicio directo, sin proxy). */
+function origenServicio(config) {
     const host = String(config.ip || '').trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '');
     const puerto = String(config.puerto || '').trim();
+    if (!puerto || puerto === '443') return `https://${host}`;
+    return `http://${host}:${puerto}`;
+}
+
+function construirUrl(config) {
     let endpoint = String(config.endpoint || '').trim() || '/';
     if (!endpoint.startsWith('/')) endpoint = `/${endpoint}`;
-    const base = `http://${host}${puerto ? `:${puerto}` : ''}${endpoint}`;
+    const base = `${origenServicio(config)}${endpoint}`;
     // El cliente es XML y nada mas: el parametro se fuerza siempre, aunque el
     // servicio ya responda XML por defecto.
     const url = new URL(base);
@@ -81,8 +92,10 @@ function construirUrl(config) {
 function baseImagenes(config) {
     const propia = String(config.imagenes || '').trim();
     if (propia) return propia.replace(/\/+$/, '');
-    // El XML solo trae el nombre del archivo; el monolito las publica bajo
-    // /library/uploads en el mismo host del microservicio.
+    // El XML solo trae el nombre del archivo. Por el gateway (https) las sirve
+    // nginx en /uploads/<uuid>; sin gateway, el sitio del monolito en el 80.
+    const origen = origenServicio(config);
+    if (origen.startsWith('https://')) return `${origen}/uploads`;
     const host = String(config.ip || '').trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '');
     return `http://${host}/library/uploads`;
 }

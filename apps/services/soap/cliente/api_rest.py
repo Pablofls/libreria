@@ -86,6 +86,32 @@ def _necesita_formato(ruta):
         ('/login', '/logout', '/token', '/session', '/books', '/concepts'))
 
 
+# API Gateway (deploy/nginx-api-tls.conf): cada servicio se pide por su prefijo
+# /api/<nombre>. El resto del cliente sigue escribiendo la ruta propia del
+# servicio (/orders/7) y aqui se traduce (/api/pedidos/7). /health, /metrics,
+# /uploads y /concepts no estan en la tabla del gateway y van tal cual.
+PREFIJOS_GATEWAY = (
+    ('/login', '/api/login'),
+    ('/register', '/api/login/register'),
+    ('/logout', '/api/login/logout'),
+    ('/session', '/api/login/session'),
+    ('/token/', '/api/login/token/'),
+    ('/books', '/api/books'),
+    ('/authors', '/api/autores'),
+    ('/orders', '/api/pedidos'),
+    ('/payments', '/api/pagos'),
+    ('/users', '/api/users'),
+)
+
+
+def ruta_gateway(ruta):
+    for propio, gateway in PREFIJOS_GATEWAY:
+        resto = ruta[len(propio):]
+        if ruta.startswith(propio) and (propio.endswith('/') or resto[:1] in ('', '/', '?')):
+            return gateway + resto
+    return ruta
+
+
 class ClienteApi:
     """Sesion contra los servicios. Seguro para usarse desde varios hilos."""
 
@@ -133,7 +159,7 @@ class ClienteApi:
         cabeceras = {'Content-Type': 'application/json', 'Accept': 'application/json'}
         if token:
             cabeceras['Authorization'] = 'Bearer ' + token
-        peticion = urllib.request.Request(self.base + ruta, data=datos,
+        peticion = urllib.request.Request(self.base + ruta_gateway(ruta), data=datos,
                                           headers=cabeceras, method=metodo)
         try:
             with urllib.request.urlopen(peticion, timeout=timeout,

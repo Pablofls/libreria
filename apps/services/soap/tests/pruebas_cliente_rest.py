@@ -42,6 +42,19 @@ def jwt_falso(segundos, rol='lector', user_id=7):
 
 ESTADO = {}
 
+# El servidor de mentira hace de API Gateway: recibe /api/<nombre>/... y lo
+# atiende como la ruta propia del servicio, igual que deploy/nginx-api-tls.conf.
+GATEWAY = (('/api/login/', '/'), ('/api/login', '/login'), ('/api/books', '/books'),
+           ('/api/autores', '/authors'), ('/api/pedidos', '/orders'),
+           ('/api/pagos', '/payments'), ('/api/users', '/users'))
+
+
+def desde_gateway(base):
+    for prefijo, propio in GATEWAY:
+        if base.startswith(prefijo):
+            return propio + base[len(prefijo):]
+    return base
+
 
 def reiniciar(**kw):
     ESTADO.clear()
@@ -80,7 +93,7 @@ class Manejador(BaseHTTPRequestHandler):
     def atender(self, metodo):
         ruta = self.path
         ESTADO['visto'].append((metodo, ruta, self.headers.get('Authorization')))
-        base = ruta.split('?')[0]
+        base = desde_gateway(ruta.split('?')[0])
         if base == '/login':
             cuerpo = self._cuerpo()
             if cuerpo.get('password') != 'buena':
@@ -141,7 +154,7 @@ usuario = c.iniciar_sesion('ana@x.mx', 'buena')
 revisar(c.sesion_activa and usuario['rol'] == 'lector' and usuario['id'] == 7, 'login ok: sesion, rol e id del token')
 revisar(not c.es_admin, 'un lector no es admin')
 revisar(1100 < c.segundos_restantes() <= 1200, 'sabe cuando vence el JWT (20 min)', c.segundos_restantes())
-revisar(any(v[1] == '/login?format=json' for v in ESTADO['visto']), 'pide JSON al login (?format=json)')
+revisar(any(v[1] == '/api/login?format=json' for v in ESTADO['visto']), 'pide JSON al login (?format=json)')
 c2 = nuevo()
 try:
     c2.iniciar_sesion('ana@x.mx', 'mala')
@@ -155,9 +168,9 @@ reiniciar()
 c = nuevo(); c.iniciar_sesion('ana@x.mx', 'buena')
 datos = c.get('/orders')
 revisar(datos == [{'id': 1}] and ESTADO['visto'][-1][2] == 'Bearer ' + c.token, 'GET manda Authorization: Bearer <jwt>')
-revisar(ESTADO['visto'][-1][1] == '/orders', 'las rutas que no son login/catalogo no llevan ?format')
+revisar(ESTADO['visto'][-1][1] == '/api/pedidos', 'pasa por el gateway (/api/pedidos) y sin ?format')
 c.get('/books?limite=3')
-revisar(ESTADO['visto'][-1][1] == '/books?limite=3&format=json', 'el catalogo pide JSON (&format=json)')
+revisar(ESTADO['visto'][-1][1] == '/api/books?limite=3&format=json', 'el catalogo va por /api/books y pide JSON')
 try:
     nuevo().get('/orders')
     revisar(False, 'sin sesion no se hace la peticion')

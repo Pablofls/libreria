@@ -135,8 +135,9 @@ Además, `/health/<servicio>` (semáforos de los clientes) y `/metrics/<servicio
 **API Gateway (`/api/*`).** Por HTTPS, nginx publica también la tabla de rutas
 del ejercicio: `/` → monolito, `/api/login`, `/api/books`, `/api/autores`,
 `/api/pedidos`, `/api/pagos` y `/api/users`. Sin un JWT válido, el gateway
-responde 401 sin llegar al servicio. Detalle en
-[MANUAL_TECNICO.md](MANUAL_TECNICO.md#api-gateway-nginx-rutas-api).
+responde 401 sin llegar al servicio. Las tres apps de escritorio lo usan.
+Detalle en [MANUAL_TECNICO.md](MANUAL_TECNICO.md#api-gateway-nginx-rutas-api);
+entrega en [docs/gateway/README.md](docs/gateway/README.md).
 
 **Flujo típico de compra (app de escritorio):**
 
@@ -324,5 +325,6 @@ README de cada una.
 | [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) · [docs/TEST_PLAN.md](docs/TEST_PLAN.md) | Requisitos y plan de pruebas |
 | [docs/GCP_COMMANDS.md](docs/GCP_COMMANDS.md) | Infraestructura y despliegue en GCP |
 | [docs/benchmark_proxy/BENCHMARK.md](docs/benchmark_proxy/BENCHMARK.md) | Benchmark de proxy inverso, balanceador y API gateway |
+| [docs/gateway/README.md](docs/gateway/README.md) | API Gateway con nginx: apps de escritorio por `/api/*`, evidencias y configuración |
 | [gps/README.md](gps/README.md) | GPS en tiempo real |
 | [docs/javadesktop/AppJava.pdf](docs/javadesktop/AppJava.pdf) | Entrega de la app Java |

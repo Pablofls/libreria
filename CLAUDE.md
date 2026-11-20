@@ -206,6 +206,12 @@ en los cuatro `app.py`. Detalle y despliegue: [MANUAL_TECNICO.md](MANUAL_TECNICO
   `GET /orders/books`); books y autores sólo lo piden fuera de GET. Las rutas sin
   prefijo siguen. Pruebas: `tests/pruebas_gateway.py`. Sintaxis validada con
   `nginx:1.27-alpine` en Docker local.
+  Las tres apps de escritorio van por el gateway: Tk `api_rest.ruta_gateway` y Java
+  `ApiClient.rutaGateway` traducen la ruta del servicio al enviar (las pantallas
+  siguen escribiendo `/orders/…`); Electron pide `https://<IP>/api/books` y confía
+  sólo en `~/libreria-api.crt` (`ca` en Node, `setCertificateVerifyProc` en Chromium).
+  Entrega: `docs/gateway/README.md`. Probado 23/0 contra la VM el 2026-11-19. Si una
+  red da "self-signed certificate" con el `.crt` correcto, es inspección TLS de esa red.
 - **Pendiente (opcional):** los puertos 5003–5006 siguen hablando HTTP y abiertos
   a una IP concreta en GCP (`libreria-permitir-servicios-jwt`) y en `firewalld`;
   para que HTTPS proteja de verdad, ligar las unidades a `127.0.0.1` y cerrar esos

@@ -197,12 +197,42 @@ public final class ApiClient {
         return false;
     }
 
+    /**
+     * API Gateway (deploy/nginx-api-tls.conf): cada servicio se pide por su prefijo
+     * /api/&lt;nombre&gt;. El resto de la app escribe la ruta propia del servicio
+     * (/orders/7) y aquí se traduce (/api/pedidos/7). /health, /metrics, /uploads,
+     * /soap y /track no están en la tabla del gateway y van tal cual.
+     */
+    private static final String[][] PREFIJOS_GATEWAY = {
+            {"/login", "/api/login"},
+            {"/register", "/api/login/register"},
+            {"/logout", "/api/login/logout"},
+            {"/session", "/api/login/session"},
+            {"/token/", "/api/login/token/"},
+            {"/books", "/api/books"},
+            {"/authors", "/api/autores"},
+            {"/orders", "/api/pedidos"},
+            {"/payments", "/api/pagos"},
+            {"/users", "/api/users"},
+    };
+
+    public static String rutaGateway(String ruta) {
+        for (String[] p : PREFIJOS_GATEWAY) {
+            if (!ruta.startsWith(p[0])) continue;
+            String resto = ruta.substring(p[0].length());
+            if (p[0].endsWith("/") || resto.isEmpty() || resto.startsWith("/") || resto.startsWith("?")) {
+                return p[1] + resto;
+            }
+        }
+        return ruta;
+    }
+
     private Respuesta enviar(String metodo, String ruta, JsonNode cuerpo, String token) throws ApiException {
         if (necesitaFormato(ruta) && !ruta.contains("format=")) {
             ruta += (ruta.contains("?") ? "&" : "?") + "format=json";
         }
         try {
-            HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(config.apiBase + ruta))
+            HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(config.apiBase + rutaGateway(ruta)))
                     .timeout(TIMEOUT)
                     .header("Accept", "application/json");
             if (token != null) b.header("Authorization", "Bearer " + token);

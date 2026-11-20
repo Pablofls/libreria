@@ -4,7 +4,9 @@ Aplicación de escritorio (Electron) que consume **exclusivamente en XML** el
 microservicio del catálogo de la librería y muestra los libros en tarjetas
 Material Design: portada, título, autores, ISBN y precio.
 
-- Endpoint por defecto: `http://34.51.80.53:5001/books?format=xml`
+- Endpoint por defecto: `https://34.51.108.167/api/books?format=xml`, por el
+  **API Gateway** (nginx detrás de Apache, 443). Confía sólo en el certificado
+  autofirmado de la VM: la copia en `~/libreria-api.crt` (o `CA_CERT=<ruta>`).
 - **6 tarjetas por página** al arrancar, con paginación.
 - Botón **Configurar servicio**: popup que pide IP, puerto y endpoint y los
   persiste en `localStorage`.
@@ -88,13 +90,15 @@ Para cerrarla: cierra la ventana (en macOS, además `Cmd+Q`).
 
 - **Recargar** vuelve a pedir el XML al servicio.
 - **Configurar servicio** abre el popup con cuatro campos:
-  - *IP o host* — por ejemplo `34.51.80.53` o `localhost`.
-  - *Puerto* — `5001` por defecto; déjalo vacío para usar el puerto 80.
-  - *Endpoint* — `/books`. Si escribes `books`, se le añade la barra inicial.
+  - *IP o host* — por defecto `34.51.108.167` (la VM).
+  - *Puerto* — vacío por defecto: **HTTPS al 443, el API Gateway**. Con otro
+    puerto (p. ej. `5002`) se habla HTTP directo al servicio, sin proxy.
+  - *Endpoint* — `/api/books` (la ruta del gateway). Si escribes `books`, se le
+    añade la barra inicial.
   - *Base de las portadas* (opcional) — el XML sólo trae el **nombre** del
     archivo de la imagen, así que hace falta la ruta pública que la sirve. Si lo
-    dejas vacío se usa `http://<IP>/library/uploads`, que es donde el monolito
-    publica las portadas en la VM.
+    dejas vacío se usa `https://<IP>/uploads` por el gateway (o
+    `http://<IP>/library/uploads` si configuraste un puerto directo).
 
   El popup muestra la **URL efectiva** mientras escribes, valida los datos antes
   de guardar y, al pulsar *Guardar y recargar*, escribe la configuración en
@@ -168,8 +172,8 @@ sobre los libros del catálogo (autores, precios, existencias, géneros).
 2. El modelo se elige en **Configurar servicio** con una lista desplegable de los
    modelos instalados en Ollama (`GET /api/tags`). Para tener más:
    `docker exec -it ollama ollama pull <modelo>` y «Actualizar lista de modelos».
-3. **Cada pregunta consulta el catálogo** (`GET /books?format=json` en la IP y el
-   puerto del popup, por defecto 5002); nunca se responde con datos guardados. Si
+3. **Cada pregunta consulta el catálogo** (`GET /api/books?format=json`, el mismo
+   origen y endpoint del popup); nunca se responde con datos guardados. Si
    el servicio no responde, el asistente lo dice y no llama al modelo. Si hay más
    de 40 libros, envía los que mejor coinciden con la pregunta.
 4. **Sólo atiende temas de la librería.** Una pregunta ajena (código, deportes,
@@ -190,7 +194,8 @@ pequeño (p. ej. `qwen2.5:1.5b`).
 
 | Síntoma | Causa y solución |
 |---|---|
-| «El servicio rechazó la conexión» | IP o puerto mal escritos, o el microservicio apagado. Compruébalo con `curl http://<IP>:5001/books`. |
+| «El servicio rechazó la conexión» | IP o puerto mal escritos, o el microservicio apagado. Compruébalo con `curl --cacert ~/libreria-api.crt https://<IP>/api/books`. |
+| «El certificado del servidor no es de confianza» | Falta `~/libreria-api.crt` o no es el de la VM: `gcloud compute scp maquina01:/etc/pki/tls/certs/libreria-api.crt ~/`. Una red con inspección TLS también lo provoca. |
 | «El servicio no respondió en 15 s» | El host no es alcanzable desde tu red (firewall de la VM). |
 | «Portada no disponible» en las tarjetas | La base de las portadas no apunta a donde se sirven las imágenes; ajústala en el popup. |
 | «Ollama no responde» en el Asistente | El contenedor está parado: `docker start ollama`. |

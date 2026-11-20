@@ -1,0 +1,36 @@
+# tests/pruebas_gateway.py contra la VM, por HTTPS (Apache 443 -> nginx gateway)
+# Fecha: 2026-11-19. Corrido desde el Mac del usuario:
+#   CA_CERT=~/libreria-api.crt HOST=34.51.108.167 ADMIN_EMAIL=... ADMIN_PASS=... \
+#   LECTOR_EMAIL=... LECTOR_PASS=... python3 tests/pruebas_gateway.py
+# Las contrasenas viajan por variable de entorno (read -s) y no aparecen aqui.
+
+1. Monolito en /
+  ok   GET / redirige a /library/ 
+  ok   GET /library/login sirve el monolito (HTML) 
+  ok   la respuesta lleva X-Request-ID 
+2. Lecturas publicas
+  ok   GET /api/books sin token, 200 
+  ok   GET /api/autores sin token, 200 
+3. El gateway rechaza antes (sin token)
+  ok   POST /api/autores sin token, 401 del gateway 
+  ok   POST /api/books/insert sin token, 401 del gateway 
+  ok   GET /api/pedidos sin token, 401 del gateway 
+  ok   GET /api/pagos sin token, 401 del gateway 
+  ok   GET /api/users sin token, 401 del gateway 
+  ok   GET /api/pedidos/1 sin token, 401 del gateway 
+  ok   token basura, 401 del gateway 
+  ok   OPTIONS (preflight CORS) no exige token 
+  ok   /api/nada, 404 JSON del gateway 
+4. Con JWT obtenido por /api/login
+  ok   POST /api/login con admin y con lector, 200 y token 
+  ok   GET /api/login/session llega a login 
+  ok   GET /api/pedidos con admin, 200 
+  ok   GET /api/pagos con admin, 200 
+  ok   GET /api/users con admin, 200 
+  ok   GET /api/users con lector: pasa el gateway y el servicio responde 403 
+  ok   POST /api/autores con lector: 403 del servicio 
+5. Las rutas sin prefijo siguen
+  ok   GET /books, 200 
+  ok   GET /orders con admin, 200 
+
+23 pruebas, 0 fallos

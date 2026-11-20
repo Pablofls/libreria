@@ -5,10 +5,29 @@
 // bloquearia el fetch por CORS. Por eso la descarga del XML vive aqui y viaja
 // al renderer por IPC como texto plano; el parseo se hace alla con DOMParser.
 
-const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, session, shell } = require('electron');
+const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const http = require('http');
 const https = require('https');
+const tls = require('tls');
+
+/* ------------------------------------------------- Certificado de la VM */
+
+// El catalogo se pide por el API Gateway (https://<IP>/api/books), que usa un
+// certificado AUTOFIRMADO (no hay dominio). No se desactiva la verificacion:
+// se confia en ese certificado, y solo en el, leyendo la copia que el usuario
+// bajo de la VM (CA_CERT, o ~/libreria-api.crt por omision).
+const RUTA_CA = (process.env.CA_CERT || path.join(os.homedir(), 'libreria-api.crt'))
+    .replace(/^~(?=$|\/)/, os.homedir());
+let CA_PEM = null;
+try {
+    CA_PEM = fs.readFileSync(RUTA_CA, 'utf8');
+} catch {
+    // Sin la copia, https solo acepta certificados de las raices del sistema.
+}
+const normalizarPem = (pem) => String(pem || '').replace(/\s+/g, '');
 
 const TIEMPO_LIMITE_MS = 15000;
 const TAMANO_MAXIMO_BYTES = 8 * 1024 * 1024;
@@ -71,6 +90,8 @@ function descargar(urlTexto, accept = 'application/xml, text/xml;q=0.9') {
                     'User-Agent': 'LibreriaElectron/1.0 (cliente XML)',
                 },
                 timeout: TIEMPO_LIMITE_MS,
+                // Raices del sistema + el certificado de la VM (si se encontro).
+                ...(url.protocol === 'https:' && CA_PEM ? { ca: [...tls.rootCertificates, CA_PEM] } : {}),
             },
             (respuesta) => {
                 const trozos = [];
@@ -101,6 +122,12 @@ function descargar(urlTexto, accept = 'application/xml, text/xml;q=0.9') {
         });
         peticion.on('error', (error) => {
             // Mensaje util para el usuario, sin volcar la traza.
+            if (/CERT|SELF_SIGNED|UNABLE_TO_VERIFY/.test(error.code || '')) {
+                return resolve({
+                    ok: false,
+                    error: `El certificado del servidor no es de confianza. Copia el de la VM en ${RUTA_CA} (o indica CA_CERT).`,
+                });
+            }
             const causas = {
                 ECONNREFUSED: 'El servicio rechazo la conexion. Revisa la IP y el puerto.',
                 ENOTFOUND: 'No se pudo resolver el host configurado.',
@@ -248,6 +275,13 @@ ipcMain.handle('ollama:cancelar', () => {
 });
 
 app.whenReady().then(() => {
+    // Las portadas (<img src="https://<IP>/uploads/...">) las carga Chromium, no
+    // Node: se le dice que acepte el certificado de la VM SOLO si es exactamente
+    // la copia local. Para todo lo demas decide Chromium (-3 = su veredicto).
+    session.defaultSession.setCertificateVerifyProc((peticion, decidir) => {
+        const esElDeLaVm = CA_PEM && normalizarPem(peticion.certificate.data) === normalizarPem(CA_PEM);
+        decidir(esElDeLaVm ? 0 : -3);
+    });
     crearVentana();
     app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) crearVentana();

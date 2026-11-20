@@ -797,6 +797,12 @@ sudo nginx -t && sudo systemctl reload nginx
 Pruebas: `tests/pruebas_gateway.py` (por HTTPS, con `CA_CERT`, `HOST` y las
 credenciales por entorno; `LIMITE=1` añade la ráfaga contra el limitador).
 
+**Clientes de escritorio.** Electron, Tk y Java usan el gateway. Tk
+(`api_rest.ruta_gateway`) y Java (`ApiClient.rutaGateway`) traducen la ruta
+propia de cada servicio al prefijo `/api/<nombre>` en el único punto donde
+envían; Electron pide `https://<IP>/api/books` y confía sólo en la copia del
+certificado de la VM. Entrega y evidencias: [docs/gateway/README.md](docs/gateway/README.md).
+
 ### Redis: sesiones, revocación y caché
 
 Redis es una capa **compartida y auxiliar**: PostgreSQL sigue siendo la fuente de

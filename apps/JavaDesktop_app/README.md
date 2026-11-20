@@ -23,6 +23,15 @@ pasa por los microservicios de la VM en GCP.
   └► WebView: Leaflet + OpenStreetMap (sólo dibuja lo que Java le pasa) ─────┘
 ```
 
+**API Gateway (2026-11-19).** El diagrama muestra la ruta propia de cada
+servicio, que es lo que escribe el código; `ApiClient.rutaGateway` la traduce al
+prefijo del gateway antes de enviarla: `/login` → `/api/login`, `/books` →
+`/api/books`, `/authors` → `/api/autores`, `/orders` → `/api/pedidos`,
+`/payments` → `/api/pagos`, `/users` → `/api/users`. `/uploads`, `/soap` y
+`/track/ws` no están en la tabla del gateway y van tal cual. Sin JWT válido,
+nginx responde 401 antes de llegar al servicio
+([deploy/nginx-api-tls.conf](../../deploy/nginx-api-tls.conf)).
+
 ## Requisitos y arranque
 
 - JDK 21 (`brew install openjdk@21`) y Maven (`brew install maven`).
